@@ -9,6 +9,10 @@ class PlayerDot {
   /// Current world-space Y position.
   double y;
 
+  /// Previous world-space position (used for continuous raycasted collision detection).
+  double prevX;
+  double prevY;
+
   /// Current velocity X (pixels per second) — used when flying.
   double vx = 0;
 
@@ -24,11 +28,15 @@ class PlayerDot {
   /// Trail positions (most recent first).
   final List<TrailPoint> trail = [];
 
-  PlayerDot({required this.x, required this.y});
+  PlayerDot({required this.x, required this.y})
+      : prevX = x,
+        prevY = y;
 
   /// Update position while orbiting around a center point.
   void updateOrbiting(double centerX, double centerY, double orbitRadius,
       double rotationSpeed, double dt) {
+    prevX = x;
+    prevY = y;
     angle += rotationSpeed * dt;
     x = centerX + cos(angle) * orbitRadius;
     y = centerY + sin(angle) * orbitRadius;
@@ -36,6 +44,8 @@ class PlayerDot {
 
   /// Update position while flying free (linear motion).
   void updateFlying(double dt) {
+    prevX = x;
+    prevY = y;
     x += vx * dt;
     y += vy * dt;
   }
@@ -44,6 +54,8 @@ class PlayerDot {
   /// Tangent of circular motion at angle θ on (cx,cy,r):
   ///   direction = (-sin(θ), cos(θ)) * sign(rotationSpeed)
   void launch(double rotationSpeed, double launchSpeed, {double planetVx = 0.0, double planetVy = 0.0}) {
+    prevX = x;
+    prevY = y;
     final sign = rotationSpeed >= 0 ? 1.0 : -1.0;
     vx = -sin(angle) * sign * launchSpeed + planetVx;
     vy = cos(angle) * sign * launchSpeed + planetVy;

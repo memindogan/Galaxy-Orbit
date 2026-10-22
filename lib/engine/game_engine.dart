@@ -16,6 +16,8 @@ class GameEngine {
   // ─── Configuration ───────────────────────────────────────────────────────
   static const double launchSpeed = 600.0; // px/s
   static const double catchRadius = 18.0; // how close player must be to planet edge to "catch"
+  static const int maxRevivesPerRun = 3;
+  static const List<int> reviveCosts = [25, 60, 120];
 
   // ─── State ────────────────────────────────────────────────────────────────
   PlayerDot player = PlayerDot(x: 0, y: 0);
@@ -24,14 +26,19 @@ class GameEngine {
   int nextPlanetIndex = 1;
   GamePhase phase = GamePhase.ready;
   int combo = 0;
+  int lastSkippedCount = 0;
+  int revivesUsed = 0;
   int score = 0;
   int levelStarDust = 0;
   int runStarDust = 0;
   int sectorStarDust = 0;
+  int lastBankedSectorStarDust = 0;
   int currentLevel = 1;
   int capturesInLevel = 0;
   int totalCapturesInLevel = 5;
   double totalElapsed = 0;
+  double flightTime = 0;
+  static const double maxFlightDuration = 2.5; // seconds fail-safe watchdog
 
   // ─── Screen bounds ────────────────────────────────────────────────────────
   double screenWidth = 0;
@@ -64,11 +71,15 @@ class GameEngine {
     currentPlanetIndex = 0;
     nextPlanetIndex = 1;
     combo = 0;
+    lastSkippedCount = 0;
+    revivesUsed = 0;
     score = 0;
     runStarDust = 0;
     sectorStarDust = 0;
     levelStarDust = 0;
+    lastBankedSectorStarDust = 0;
     totalElapsed = 0;
+    flightTime = 0;
     cameraY = 0;
     targetCameraY = 0;
     phase = GamePhase.playing;
@@ -92,22 +103,75 @@ class GameEngine {
     currentLevel++;
     capturesInLevel = 0;
     sectorStarDust = 0;
+    levelStarDust = 0;
     totalCapturesInLevel = _calcCapturesForLevel(currentLevel);
     phase = GamePhase.playing;
+  }
+
+  /// Whether the player is eligible to revive in the current run.
+  bool get canRevive => phase == GamePhase.gameOver && revivesUsed < maxRevivesPerRun;
+
+  /// Remaining revive count in the current run.
+  int get remainingRevives => max(0, maxRevivesPerRun - revivesUsed);
+
+  /// Stardust cost for the next revive (25 -> 60 -> 120).
+  int get nextReviveCost =>
+      revivesUsed < reviveCosts.length ? reviveCosts[revivesUsed] : reviveCosts.last;
+
+  /// Places the player safely back into orbit on the last cleared planet.
+  bool revivePlayer() {
+    if (!canRevive) return false;
+    if (planets.isEmpty || currentPlanetIndex < 0 || currentPlanetIndex >= planets.length) {
+      return false;
+    }
+
+    revivesUsed++;
+    combo = 0;
+    lastSkippedCount = 0;
+    flightTime = 0;
+
+    final planet = planets[currentPlanetIndex];
+    planet.update(totalElapsed);
+
+    player.isOrbiting = true;
+    player.vx = 0;
+    player.vy = 0;
+    player.x = planet.x + cos(player.angle) * planet.radius;
+    player.y = planet.y + sin(player.angle) * planet.radius;
+    player.prevX = player.x;
+    player.prevY = player.y;
+    player.trail.clear();
+
+    phase = GamePhase.playing;
+    _updateCamera(instant: true);
+    return true;
+  }
+
+  /// Updates screen bounds dynamically on window resize or orientation change without resetting run.
+  void updateScreenSize(double w, double h) {
+    if (w <= 0 || h <= 0) return;
+    screenWidth = w;
+    screenHeight = h;
+    endlessManager.screenWidth = w;
+    endlessManager.screenHeight = h;
   }
 
   /// Main update tick — called every frame with dt in seconds.
   void update(double dt) {
     if (phase != GamePhase.playing) return;
+    if (planets.isEmpty || currentPlanetIndex < 0 || currentPlanetIndex >= planets.length) return;
 
     totalElapsed += dt;
 
-    // Update moving planets.
-    for (final p in planets) {
-      p.update(totalElapsed);
+    // Update moving planets in active window around player.
+    final updateStart = max(0, currentPlanetIndex - 2);
+    final updateEnd = min(planets.length, currentPlanetIndex + 5);
+    for (int i = updateStart; i < updateEnd; i++) {
+      planets[i].update(totalElapsed);
     }
 
     if (player.isOrbiting) {
+      flightTime = 0;
       final planet = planets[currentPlanetIndex];
       player.updateOrbiting(
         planet.x,
@@ -119,13 +183,14 @@ class GameEngine {
       player.recordTrail();
     } else {
       // Flying phase.
+      flightTime += dt;
       player.updateFlying(dt);
       player.recordTrail();
 
       _checkCollisions();
 
-      // Out of bounds → game over.
-      if (_isOutOfVisibleBounds()) {
+      // Out of bounds or maximum flight duration timeout → game over (only if still flying).
+      if (!player.isOrbiting && (_isOutOfVisibleBounds() || flightTime >= maxFlightDuration)) {
         phase = GamePhase.gameOver;
         onGameOver?.call();
         return;
@@ -139,6 +204,7 @@ class GameEngine {
   void onTap() {
     if (phase != GamePhase.playing) return;
     if (!player.isOrbiting) return;
+    if (planets.isEmpty || currentPlanetIndex < 0 || currentPlanetIndex >= planets.length) return;
 
     final planet = planets[currentPlanetIndex];
     player.launch(
@@ -151,12 +217,18 @@ class GameEngine {
   }
 
   void _checkCollisions() {
-    final px = player.x;
-    final py = player.y;
+    final x1 = player.prevX;
+    final y1 = player.prevY;
+    final x2 = player.x;
+    final y2 = player.y;
 
-    // Narrow search window around the active player index
+    final segDx = x2 - x1;
+    final segDy = y2 - y1;
+    final segLenSq = segDx * segDx + segDy * segDy;
+
+    // Search window around active player index
     final startIndex = max(0, currentPlanetIndex);
-    final endIndex = min(planets.length, currentPlanetIndex + 4);
+    final endIndex = min(planets.length, currentPlanetIndex + 5);
 
     for (int i = startIndex; i < endIndex; i++) {
       if (i == currentPlanetIndex) continue;
@@ -164,14 +236,37 @@ class GameEngine {
       if (planet.cleared) continue;
 
       final maxCatch = planet.radius + catchRadius;
-      final dy = py - planet.y;
-      if (dy.abs() > maxCatch) continue; // 1D broad-phase cull
-
-      final dx = px - planet.x;
-      final distSq = dx * dx + dy * dy;
       final maxCatchSq = maxCatch * maxCatch;
 
+      // 1D broad-phase cull against bounding box of travel segment
+      final minY = min(y1, y2) - maxCatch;
+      final maxY = max(y1, y2) + maxCatch;
+      if (planet.y < minY || planet.y > maxY) continue;
+
+      // Continuous collision test: shortest distance from planet center to travel segment
+      double distSq;
+      double catchX = x2;
+      double catchY = y2;
+
+      if (segLenSq < 1e-4) {
+        final dx = x2 - planet.x;
+        final dy = y2 - planet.y;
+        distSq = dx * dx + dy * dy;
+      } else {
+        // Project planet center onto line segment: t = dot(planet - p1, p2 - p1) / lenSq
+        final t = (((planet.x - x1) * segDx + (planet.y - y1) * segDy) / segLenSq).clamp(0.0, 1.0);
+        final projX = x1 + t * segDx;
+        final projY = y1 + t * segDy;
+        final dx = projX - planet.x;
+        final dy = projY - planet.y;
+        distSq = dx * dx + dy * dy;
+        catchX = projX;
+        catchY = projY;
+      }
+
       if (distSq <= maxCatchSq) {
+        player.x = catchX;
+        player.y = catchY;
         _attachToPlanet(i);
         return;
       }
@@ -180,14 +275,43 @@ class GameEngine {
 
   void _attachToPlanet(int index) {
     final planet = planets[index];
-    planet.cleared = true;
+    final skippedPlanets = max(0, index - currentPlanetIndex - 1);
+
+    // Mark any bypassed intermediate planets as cleared so they don't remain active targets
+    for (int k = currentPlanetIndex + 1; k <= index; k++) {
+      planets[k].cleared = true;
+    }
+
     currentPlanetIndex = index;
-    combo++;
-    score += 10 * combo;
-    final earned = 5 * combo;
+    lastSkippedCount = skippedPlanets;
+
+    int earned;
+    if (skippedPlanets == 0) {
+      // Safe play: immediate next planet -> standard reward, resets leap combo streak
+      combo = 0;
+      score += 10;
+      earned = 1;
+    } else if (skippedPlanets == 1) {
+      // Single Orbit Leap (1 planet skipped): combo streak scales rewards (8 -> 15 -> 25+)
+      combo++;
+      score += 50 * combo;
+      if (combo == 1) {
+        earned = 8;
+      } else if (combo == 2) {
+        earned = 15;
+      } else {
+        earned = 25 + (combo - 3) * 10;
+      }
+    } else {
+      // Double+ Orbit Leap (2 or more planets skipped): high-mastery bonus
+      combo++;
+      score += 150 * combo;
+      earned = 25 + (combo - 1) * 15;
+    }
+
     runStarDust += earned;
     sectorStarDust += earned;
-    levelStarDust = runStarDust;
+    levelStarDust = sectorStarDust;
     capturesInLevel++;
 
     player.angle = atan2(player.y - planet.y, player.x - planet.x);
@@ -196,10 +320,18 @@ class GameEngine {
     player.vy = 0;
     player.x = planet.x + cos(player.angle) * planet.radius;
     player.y = planet.y + sin(player.angle) * planet.radius;
+    flightTime = 0;
 
-    // If we are close to the end of the list, generate more planets
-    if (currentPlanetIndex >= planets.length - 3) {
+    // Ensure there are always at least 5 upcoming planets ahead of player
+    while (planets.length - currentPlanetIndex < 6) {
       planets.add(endlessManager.generateNextPlanet());
+    }
+
+    // Prune distant off-screen planets behind player to prevent memory leaks and GC pressure
+    if (currentPlanetIndex > 3) {
+      final pruneCount = currentPlanetIndex - 3;
+      planets.removeRange(0, pruneCount);
+      currentPlanetIndex -= pruneCount;
     }
 
     nextPlanetIndex = currentPlanetIndex + 1;
@@ -208,17 +340,18 @@ class GameEngine {
     // Check if level captures complete — seamlessly advance without pausing
     if (capturesInLevel >= totalCapturesInLevel) {
       final completedLevel = currentLevel;
-      final bonus = 100 + completedLevel * 20;
+      final bonus = 15 + (completedLevel - 1) * 2;
       runStarDust += bonus;
-      levelStarDust = runStarDust;
+      lastBankedSectorStarDust = sectorStarDust + bonus;
       advanceToNextLevel();
       onLevelComplete?.call(completedLevel, bonus);
     }
   }
 
   bool _isOutOfVisibleBounds() {
-    final visibleTop = cameraY - screenHeight * 0.3;
-    final visibleBottom = cameraY + screenHeight * 1.3;
+    final refCameraY = min(cameraY, targetCameraY);
+    final visibleTop = refCameraY - screenHeight * 0.55;
+    final visibleBottom = max(cameraY, targetCameraY) + screenHeight * 1.3;
     final margin = 150.0;
 
     return player.x < -margin ||
@@ -228,6 +361,7 @@ class GameEngine {
   }
 
   void _updateCamera({bool instant = false}) {
+    if (planets.isEmpty || currentPlanetIndex < 0 || currentPlanetIndex >= planets.length) return;
     final planet = planets[currentPlanetIndex];
     targetCameraY = planet.y - screenHeight * 0.75; // Lower the planet visually since we go up
 
@@ -238,7 +372,7 @@ class GameEngine {
 
   /// Smoothly interpolate camera towards target. Frame-rate independent exponential decay.
   void smoothCamera(double dt) {
-    if (!player.isOrbiting && currentPlanetIndex + 1 < planets.length) {
+    if (!player.isOrbiting && currentPlanetIndex >= 0 && currentPlanetIndex + 1 < planets.length) {
       // Dynamic camera anticipation during free flight towards next planet
       final nextPlanet = planets[currentPlanetIndex + 1];
       targetCameraY = ((planets[currentPlanetIndex].y + nextPlanet.y) / 2) - screenHeight * 0.75;

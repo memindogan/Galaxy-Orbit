@@ -10,7 +10,6 @@ library;
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
@@ -20,6 +19,7 @@ import '../models/fleet_planet.dart';
 import '../providers/game_state_provider.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/figma_icons.dart';
+import '../services/haptic_service.dart';
 import 'main_menu_screen.dart';
 
 class HangarScreen extends StatefulWidget {
@@ -30,13 +30,14 @@ class HangarScreen extends StatefulWidget {
 }
 
 class _HangarScreenState extends State<HangarScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _clock;
   late String _selectedPlanetId;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _clock = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 30),
@@ -47,15 +48,26 @@ class _HangarScreenState extends State<HangarScreen>
     _selectedPlanetId = gameState.equippedPlanetId;
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      if (_clock.isAnimating) _clock.stop();
+    } else if (state == AppLifecycleState.resumed) {
+      if (!_clock.isAnimating) _clock.repeat();
+    }
+  }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _clock.dispose();
     super.dispose();
   }
 
   void _onSelectPlanet(String id) {
-    HapticFeedback.selectionClick();
+    if (context.read<SettingsProvider>().vibrationEnabled) {
+      HapticService.selectionClick();
+    }
     setState(() {
       _selectedPlanetId = id;
     });
@@ -74,7 +86,9 @@ class _HangarScreenState extends State<HangarScreen>
 
     if (isUnlocked) {
       gameState.equipPlanet(planet.id);
-      HapticFeedback.mediumImpact();
+      if (settings.vibrationEnabled) {
+        HapticService.mediumImpact();
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           behavior: SnackBarBehavior.floating,
@@ -94,7 +108,9 @@ class _HangarScreenState extends State<HangarScreen>
 
     // Attempt to unlock
     if (gameState.totalStarDust < planet.price) {
-      HapticFeedback.heavyImpact();
+      if (settings.vibrationEnabled) {
+        HapticService.heavyImpact();
+      }
       final needed = planet.price - gameState.totalStarDust;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -115,7 +131,9 @@ class _HangarScreenState extends State<HangarScreen>
 
     final success = gameState.unlockPlanet(planet.id);
     if (success) {
-      HapticFeedback.heavyImpact();
+      if (settings.vibrationEnabled) {
+        HapticService.heavyImpact();
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           behavior: SnackBarBehavior.floating,
@@ -151,11 +169,13 @@ class _HangarScreenState extends State<HangarScreen>
       backgroundColor: kBackgroundColor,
       body: Stack(
         children: [
-          // 1. Galaxy space background
+          // 1. Galaxy space background (bounded decode cache + gapless playback)
           Positioned.fill(
             child: Image.asset(
               'assets/images/menu_bg.jpg',
               fit: BoxFit.cover,
+              cacheWidth: 780,
+              gaplessPlayback: true,
             ),
           ),
 
@@ -292,46 +312,46 @@ class _HangarScreenState extends State<HangarScreen>
 
                 const SizedBox(height: 16),
 
-                // Scrollable middle section: Hero card + Worlds list
+                // Scrollable middle section: Hero card + Worlds list (Virtualized ListView.builder)
                 Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    children: [
-                      // Hero Showcase Card
-                      _HeroShowcaseCard(
-                        planet: selectedPlanet,
-                        clock: _clock,
-                        isUnlocked: isUnlocked,
-                        isEquipped: isEquipped,
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // Worlds list
-                      ...FleetCatalog.worlds.map((world) {
-                        final isItemUnlocked = gameState.isUnlocked(world.id);
-                        final isItemEquipped = gameState.isEquipped(world.id);
-                        final isItemSelected = world.id == _selectedPlanetId;
-
+                  child: ListView.builder(
+                    padding: const EdgeInsets.only(left: 20, right: 20, bottom: 80),
+                    itemCount: FleetCatalog.worlds.length + 1,
+                    itemBuilder: (context, index) {
+                      if (index == 0) {
                         return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _WorldListCard(
-                            planet: world,
-                            isUnlocked: isItemUnlocked,
-                            isEquipped: isItemEquipped,
-                            isSelected: isItemSelected,
-                            strings: settings.strings,
-                            onTap: () => _onSelectPlanet(world.id),
-                            onEquip: () {
-                              gameState.equipPlanet(world.id);
-                              setState(() => _selectedPlanetId = world.id);
-                            },
+                          padding: const EdgeInsets.only(bottom: 20),
+                          child: _HeroShowcaseCard(
+                            planet: selectedPlanet,
+                            clock: _clock,
+                            isUnlocked: isUnlocked,
+                            isEquipped: isEquipped,
                           ),
                         );
-                      }),
+                      }
 
-                      const SizedBox(height: 80), // Padding for bottom floating button
-                    ],
+                      final world = FleetCatalog.worlds[index - 1];
+                      final isItemUnlocked = gameState.isUnlocked(world.id);
+                      final isItemEquipped = gameState.isEquipped(world.id);
+                      final isItemSelected = world.id == _selectedPlanetId;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _WorldListCard(
+                          key: ValueKey(world.id),
+                          planet: world,
+                          isUnlocked: isItemUnlocked,
+                          isEquipped: isItemEquipped,
+                          isSelected: isItemSelected,
+                          strings: settings.strings,
+                          onTap: () => _onSelectPlanet(world.id),
+                          onEquip: () {
+                            gameState.equipPlanet(world.id);
+                            setState(() => _selectedPlanetId = world.id);
+                          },
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -540,11 +560,13 @@ class _HeroShowcaseCard extends StatelessWidget {
                   alignment: Alignment.center,
                   children: [
                     // Revolving orbit line and companion vessel
-                    CustomPaint(
-                      size: const Size(220, 220),
-                      painter: _ShowcaseOrbitPainter(
-                        clock: clock,
-                        planet: planet,
+                    RepaintBoundary(
+                      child: CustomPaint(
+                        size: const Size(220, 220),
+                        painter: _ShowcaseOrbitPainter(
+                          clock: clock,
+                          planet: planet,
+                        ),
                       ),
                     ),
 
@@ -566,9 +588,15 @@ class _HeroShowcaseCard extends StatelessWidget {
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
-                            Image.asset(
-                              planet.assetPath,
-                              fit: BoxFit.cover,
+                            Transform.scale(
+                              scale: 1024 / 888,
+                              child: Image.asset(
+                                planet.assetPath,
+                                fit: BoxFit.cover,
+                                cacheWidth: 256,
+                                cacheHeight: 256,
+                                gaplessPlayback: true,
+                              ),
                             ),
                             // Shading
                             const DecoratedBox(
@@ -650,6 +678,10 @@ class _ShowcaseOrbitPainter extends CustomPainter {
   final Paint _wingPaint = Paint()
     ..style = PaintingStyle.stroke
     ..strokeWidth = 1.5;
+  Shader? _cachedTrailShader;
+  FleetPlanet? _cachedPlanet;
+  static const Rect _unitTrailRect = Rect.fromLTWH(-86.0, -86.0, 172.0, 172.0);
+  static const Rect _vesselBodyRect = Rect.fromLTWH(-4.0, -6.0, 8.0, 12.0);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -664,25 +696,31 @@ class _ShowcaseOrbitPainter extends CustomPainter {
     final angle = clock.value * 2 * pi;
     final vesselPos = center + Offset(cos(angle), sin(angle)) * radius;
 
-    // Plazma thruster trail
-    final trailRect = Rect.fromCircle(center: center, radius: radius);
-    _trailPaint.shader = SweepGradient(
-      startAngle: 0,
-      endAngle: 0.7,
-      colors: [
-        Colors.transparent,
-        planet.primaryColor.withValues(alpha: 0.8),
-      ],
-      transform: GradientRotation(angle - 0.7),
-    ).createShader(trailRect);
+    // Cached plasma thruster trail shader rotated via canvas transform (zero per-frame compilation)
+    if (_cachedTrailShader == null || _cachedPlanet != planet) {
+      _cachedPlanet = planet;
+      _cachedTrailShader = SweepGradient(
+        startAngle: 0,
+        endAngle: 0.7,
+        colors: [
+          Colors.transparent,
+          planet.primaryColor.withValues(alpha: 0.8),
+        ],
+      ).createShader(_unitTrailRect);
+    }
 
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(angle - 0.7);
+    _trailPaint.shader = _cachedTrailShader;
     canvas.drawArc(
-      trailRect,
-      angle - 0.7,
+      _unitTrailRect,
+      0,
       0.7,
       false,
       _trailPaint,
     );
+    canvas.restore();
 
     // Draw companion vessel
     canvas.save();
@@ -694,10 +732,7 @@ class _ShowcaseOrbitPainter extends CustomPainter {
     canvas.drawCircle(Offset.zero, 8, _glowPaint);
 
     // Vessel body (sleek satellite probe shape)
-    canvas.drawRect(
-      Rect.fromCenter(center: Offset.zero, width: 8, height: 12),
-      _bodyPaint,
-    );
+    canvas.drawRect(_vesselBodyRect, _bodyPaint);
     // Solar wings
     _wingPaint.color = planet.companionColor;
     canvas.drawLine(const Offset(-8, -2), const Offset(-4, -2), _wingPaint);
@@ -724,6 +759,7 @@ class _WorldListCard extends StatelessWidget {
   final VoidCallback onEquip;
 
   const _WorldListCard({
+    super.key,
     required this.planet,
     required this.isUnlocked,
     required this.isEquipped,
@@ -777,11 +813,15 @@ class _WorldListCard extends StatelessWidget {
                 ],
               ),
               child: ClipOval(
-                child: Image.asset(
-                  planet.assetPath,
-                  fit: BoxFit.cover,
-                  cacheWidth: 120,
-                  cacheHeight: 120,
+                child: Transform.scale(
+                  scale: 1024 / 888,
+                  child: Image.asset(
+                    planet.assetPath,
+                    fit: BoxFit.cover,
+                    cacheWidth: 120,
+                    cacheHeight: 120,
+                    gaplessPlayback: true,
+                  ),
                 ),
               ),
             ),

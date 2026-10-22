@@ -32,6 +32,55 @@ class _ParallaxStarData {
   });
 }
 
+/// Pre-computed per-world colors and GPU radial gradient shaders to avoid
+/// per-frame Color allocations and expensive multi-pass MaskFilter.blur FBO switches.
+class _WorldVisualStyle {
+  final bool isRinged;
+  final Color clearedBodyColor;
+  final Color currentOrbitColor;
+  final Color outerRingColor;
+  final Color innerRingColor;
+  final Color rimColor;
+  final Color trailGlowColor;
+  final Color guideColor;
+  final Paint haloPaint;
+  final Paint lowQualityHaloPaint;
+  final Paint playerHaloPaint;
+
+  _WorldVisualStyle(FleetPlanet world)
+      : isRinged = world.id == 'chronos' ||
+            world.id == 'aether' ||
+            world.id == 'eclipse' ||
+            world.id == 'void',
+        clearedBodyColor = world.primaryColor.withValues(alpha: 0.16),
+        currentOrbitColor = world.primaryColor.withValues(alpha: 0.58),
+        outerRingColor = world.primaryColor.withValues(alpha: 0.55),
+        innerRingColor = world.primaryColor.withValues(alpha: 0.35),
+        rimColor = world.glowColor.withValues(alpha: 0.75),
+        trailGlowColor = world.glowColor.withValues(alpha: 0.32),
+        guideColor = world.companionColor.withValues(alpha: 0.20),
+        lowQualityHaloPaint = Paint()
+          ..color = world.glowColor.withValues(alpha: 0.22),
+        haloPaint = Paint()
+          ..shader = RadialGradient(
+            colors: [
+              world.glowColor.withValues(alpha: 0.42),
+              world.glowColor.withValues(alpha: 0.16),
+              world.glowColor.withValues(alpha: 0.0),
+            ],
+            stops: const [0.48, 0.76, 1.0],
+          ).createShader(Rect.fromCircle(center: Offset.zero, radius: 1.0)),
+        playerHaloPaint = Paint()
+          ..shader = RadialGradient(
+            colors: [
+              world.companionColor.withValues(alpha: 0.52),
+              world.companionColor.withValues(alpha: 0.18),
+              world.companionColor.withValues(alpha: 0.0),
+            ],
+            stops: const [0.0, 0.55, 1.0],
+          ).createShader(Rect.fromCircle(center: Offset.zero, radius: 1.0));
+}
+
 class GamePainter extends CustomPainter {
   final GameEngine engine;
   final bool colorBlindMode;
@@ -87,6 +136,49 @@ class GamePainter extends CustomPainter {
       stops: [0.72, 1.0],
     ).createShader(Rect.fromCircle(center: Offset.zero, radius: 1.0));
 
+  static final Paint _cbPlayerHaloPaint = Paint()
+    ..shader = const RadialGradient(
+      colors: [
+        Color(0x85FFD600),
+        Color(0x2EFFD600),
+        Color(0x00FFD600),
+      ],
+      stops: [0.0, 0.55, 1.0],
+    ).createShader(Rect.fromCircle(center: Offset.zero, radius: 1.0));
+
+  static final List<Color> _whiteAlphaLut = List.generate(
+    256,
+    (a) => Color((a << 24) | 0x00FFFFFF),
+    growable: false,
+  );
+
+  static final Map<String, _WorldVisualStyle> _worldStyles = {
+    for (final w in FleetCatalog.worlds) w.id: _WorldVisualStyle(w),
+  };
+
+  static _WorldVisualStyle _styleFor(FleetPlanet world) =>
+      _worldStyles[world.id] ?? (_worldStyles[world.id] = _WorldVisualStyle(world));
+
+  // Pre-allocated geometry constants for vessels & rings
+  static const Rect _fullTexSrcRect = Rect.fromLTWH(0, 0, 256, 256);
+  static const Rect _ringClipBehind = Rect.fromLTRB(-2.0, -2.0, 2.0, 0.0);
+  static const Rect _ringClipFront = Rect.fromLTRB(-2.0, 0.0, 2.0, 2.0);
+  static const Rect _outerRingUnitRect = Rect.fromLTWH(-1.4, -0.375, 2.8, 0.75);
+  static const Rect _innerRingUnitRect = Rect.fromLTWH(-1.15, -0.3, 2.3, 0.6);
+  static const Rect _terraArcRect = Rect.fromLTWH(-5.2, -5.2, 10.4, 10.4);
+  static final RRect _aetherWingTopRRect =
+      RRect.fromRectAndRadius(const Rect.fromLTWH(-4.5, -8.0, 8.0, 3.2), const Radius.circular(1.2));
+  static final RRect _aetherWingBotRRect =
+      RRect.fromRectAndRadius(const Rect.fromLTWH(-4.5, 4.8, 8.0, 3.2), const Radius.circular(1.2));
+  static final RRect _aetherBodyRRect =
+      RRect.fromRectAndRadius(const Rect.fromLTWH(-4.0, -3.5, 8.0, 7.0), const Radius.circular(1.5));
+  static const Rect _titanOvalRect = Rect.fromLTWH(-1.5, -1.25, 5.0, 2.5);
+  static final RRect _orionWingTopRRect =
+      RRect.fromRectAndRadius(const Rect.fromLTWH(-4.5, -5.5, 9.0, 2.2), const Radius.circular(1.0));
+  static final RRect _orionWingBotRRect =
+      RRect.fromRectAndRadius(const Rect.fromLTWH(-4.5, 3.3, 9.0, 2.2), const Radius.circular(1.0));
+  static const Rect _voidOvalRect = Rect.fromLTWH(-5.5, -3.5, 11.0, 7.0);
+
   // ─── Pre-allocated paints ────────────────────────────────────────────────
   final Paint _bgPaint = Paint()..color = kBackgroundColor;
 
@@ -102,37 +194,56 @@ class GamePainter extends CustomPainter {
   final Paint _nebulaPaint2 = Paint();
   Shader? _cachedNebulaShader1;
   Shader? _cachedNebulaShader2;
+  Offset _cachedNebulaCenter1 = Offset.zero;
+  Offset _cachedNebulaCenter2 = Offset.zero;
   double _lastNebulaWidth = 0;
   double _lastNebulaHeight = 0;
 
   final Paint _starPaint = Paint()..style = PaintingStyle.fill;
   final Paint _crossPaint = Paint()
     ..style = PaintingStyle.stroke
-    ..strokeWidth = 0.6;
+    ..strokeWidth = 0.6
+    ..color = const Color(0x48FFFFFF);
+  final Path _starCrossPath = Path();
 
   final Paint _guidePaint = Paint()
     ..style = PaintingStyle.stroke
     ..strokeWidth = 1.0;
+  final Path _guidePath = Path();
 
   final Paint _clearedBodyPaint = Paint()..style = PaintingStyle.fill;
-  final Paint _haloGlowPaint = Paint()
-    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14.0);
   final Paint _rimPaint = Paint()
     ..style = PaintingStyle.stroke
-    ..strokeWidth = 1.5
-    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
-  final Paint _playerHaloPaint = Paint()
-    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10.0);
+    ..strokeCap = StrokeCap.round
+    ..strokeWidth = 1.6;
   final Paint _trailGlowPaint = Paint()
     ..style = PaintingStyle.stroke
     ..strokeCap = StrokeCap.round
-    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0);
+    ..strokeJoin = StrokeJoin.round;
   final Paint _trailCorePaint = Paint()
     ..style = PaintingStyle.stroke
     ..strokeCap = StrokeCap.round;
-  final Paint _texPaint = Paint()..filterQuality = FilterQuality.medium;
-  final Paint _outerRingPaint = Paint()..style = PaintingStyle.stroke..strokeWidth = 2.0;
-  final Paint _innerRingPaint = Paint()..style = PaintingStyle.stroke..strokeWidth = 1.0;
+  final Paint _texPaint = Paint()..filterQuality = FilterQuality.low;
+  final Paint _outerRingPaint = Paint()..style = PaintingStyle.stroke;
+  final Paint _innerRingPaint = Paint()..style = PaintingStyle.stroke;
+  final Paint _cbPlayerRingPaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.8
+    ..color = const Color(0xFFFFD600);
+  final Paint _cbMarkerPaint = Paint()
+    ..color = const Color(0xFF00E5FF)
+    ..style = PaintingStyle.fill;
+
+  final Path _trailPath = Path();
+
+  final Paint _vesselFill = Paint()..style = PaintingStyle.fill;
+  final Paint _vesselStroke = Paint()..style = PaintingStyle.stroke;
+  final Path _vesselPath = Path();
+  final Path _vesselPath2 = Path();
+
+  final Paint _procFill = Paint()..style = PaintingStyle.fill;
+  final Paint _procStroke = Paint()..style = PaintingStyle.stroke;
+  final Path _procPath = Path();
 
   GamePainter({
     required this.engine,
@@ -146,14 +257,12 @@ class GamePainter extends CustomPainter {
   })  : equippedPlanet = equippedPlanet ?? FleetCatalog.worlds.first;
 
   Color get _playerColor =>
-      colorBlindMode ? kPlayerColorCB : equippedPlanet.companionColor;
-  Color get _planetAccentColor =>
-      colorBlindMode ? kPlanetColorCB : kAccentColor;
+      colorBlindMode ? const Color(0xFFFFD600) : equippedPlanet.companionColor;
 
   @override
   void paint(Canvas canvas, Size size) {
-    // ── Deep Space Background ──────────────────────────────────────────────
-    canvas.drawRect(Offset.zero & size, _bgPaint);
+    // ── Deep Space Background (zero Rect allocation) ───────────────────────
+    canvas.drawPaint(_bgPaint);
 
     // ── Cosmic Nebula Glow ──────────────────────────────────────────────────
     _drawNebula(canvas, size);
@@ -196,34 +305,36 @@ class GamePainter extends CustomPainter {
     canvas.restore();
   }
 
-  // ─── Nebula Layer (Cached Shaders) ────────────────────────────────────────
+  // ─── Nebula Layer (Cached Shaders & Centers) ──────────────────────────────
   void _drawNebula(Canvas canvas, Size size) {
-    if (graphicsQuality == GraphicsQuality.low) return;
+    if (graphicsQuality == GraphicsQuality.low || colorBlindMode) return;
 
     if (_cachedNebulaShader1 == null || _lastNebulaWidth != size.width || _lastNebulaHeight != size.height) {
       _lastNebulaWidth = size.width;
       _lastNebulaHeight = size.height;
+      _cachedNebulaCenter1 = Offset(size.width * 0.8, size.height * 0.25);
+      _cachedNebulaCenter2 = Offset(size.width * 0.2, size.height * 0.75);
 
-      _cachedNebulaShader1 = RadialGradient(
+      _cachedNebulaShader1 = const RadialGradient(
         colors: [
-          const Color(0xFF1E1B4B).withValues(alpha: 0.15),
+          Color(0x261E1B4B),
           Colors.transparent,
         ],
-        stops: const [0.0, 1.0],
+        stops: [0.0, 1.0],
       ).createShader(Rect.fromCircle(
-        center: Offset(size.width * 0.8, size.height * 0.25),
+        center: _cachedNebulaCenter1,
         radius: size.width * 0.6,
       ));
 
       if (graphicsQuality == GraphicsQuality.high) {
-        _cachedNebulaShader2 = RadialGradient(
+        _cachedNebulaShader2 = const RadialGradient(
           colors: [
-            const Color(0xFF0F2B48).withValues(alpha: 0.18),
+            Color(0x2E0F2B48),
             Colors.transparent,
           ],
-          stops: const [0.0, 1.0],
+          stops: [0.0, 1.0],
         ).createShader(Rect.fromCircle(
-          center: Offset(size.width * 0.2, size.height * 0.75),
+          center: _cachedNebulaCenter2,
           radius: size.width * 0.7,
         ));
       }
@@ -231,7 +342,7 @@ class GamePainter extends CustomPainter {
 
     _nebulaPaint1.shader = _cachedNebulaShader1;
     canvas.drawCircle(
-      Offset(size.width * 0.8, size.height * 0.25),
+      _cachedNebulaCenter1,
       size.width * 0.6,
       _nebulaPaint1,
     );
@@ -239,14 +350,14 @@ class GamePainter extends CustomPainter {
     if (graphicsQuality == GraphicsQuality.high && _cachedNebulaShader2 != null) {
       _nebulaPaint2.shader = _cachedNebulaShader2;
       canvas.drawCircle(
-        Offset(size.width * 0.2, size.height * 0.75),
+        _cachedNebulaCenter2,
         size.width * 0.7,
         _nebulaPaint2,
       );
     }
   }
 
-  // ─── Parallax Stars (Static Pre-computed Array) ───────────────────────────
+  // ─── Parallax Stars (Static Pre-computed Array + LUT + Endless Wrap) ─────
   void _drawParallaxStars(Canvas canvas, Size size) {
     final int starCount = switch (graphicsQuality) {
       GraphicsQuality.high => 90,
@@ -255,41 +366,45 @@ class GamePainter extends CustomPainter {
     };
 
     final count = min(starCount, _staticStars.length);
+    final span = size.height + 30.0;
+    if (span <= 30.0) return;
+
+    _starCrossPath.reset();
+    bool hasCrosses = false;
+
     for (int i = 0; i < count; i++) {
       final s = _staticStars[i];
       final x = s.nx * size.width;
       final parallaxFactor = 0.06 + s.layer * 0.25;
-      final screenY = s.worldY - engine.cameraY * parallaxFactor;
+      final rawY = (s.worldY - engine.cameraY * parallaxFactor) % span;
+      final screenY = (rawY < 0 ? rawY + span : rawY) - 15.0;
 
-      if (screenY > -15 && screenY < size.height + 15) {
-        final twinkle = reducedMotion
-            ? 0.85
-            : 0.75 + 0.25 * sin(engine.totalElapsed * s.twinkleSpeed + i);
-        final alpha = ((0.2 + s.layer * 0.7) * twinkle).clamp(0.0, 1.0);
-        _starPaint.color = Colors.white.withValues(alpha: alpha);
-        canvas.drawCircle(Offset(x, screenY), s.radius, _starPaint);
+      final twinkle = reducedMotion
+          ? 0.85
+          : 0.75 + 0.25 * sin(engine.totalElapsed * s.twinkleSpeed + i);
+      final alpha = ((0.2 + s.layer * 0.7) * twinkle).clamp(0.0, 1.0);
+      final aInt = (alpha * 255).toInt().clamp(0, 255);
+      _starPaint.color = _whiteAlphaLut[aInt];
+      canvas.drawCircle(Offset(x, screenY), s.radius, _starPaint);
 
-        if (s.layer > 0.85 && s.radius > 1.6) {
-          _crossPaint.color = Colors.white.withValues(alpha: alpha * 0.35);
-          canvas.drawLine(
-            Offset(x - 3, screenY),
-            Offset(x + 3, screenY),
-            _crossPaint,
-          );
-          canvas.drawLine(
-            Offset(x, screenY - 3),
-            Offset(x, screenY + 3),
-            _crossPaint,
-          );
-        }
+      if (s.layer > 0.85 && s.radius > 1.6) {
+        hasCrosses = true;
+        _starCrossPath.moveTo(x - 3.0, screenY);
+        _starCrossPath.lineTo(x + 3.0, screenY);
+        _starCrossPath.moveTo(x, screenY - 3.0);
+        _starCrossPath.lineTo(x, screenY + 3.0);
       }
+    }
+
+    if (hasCrosses) {
+      canvas.drawPath(_starCrossPath, _crossPaint);
     }
   }
 
   // ─── Tangent Aim Guidance ─────────────────────────────────────────────────
   void _drawAimGuidance(Canvas canvas) {
     if (!engine.player.isOrbiting) return;
-    if (engine.currentPlanetIndex >= engine.planets.length) return;
+    if (engine.currentPlanetIndex < 0 || engine.currentPlanetIndex >= engine.planets.length) return;
 
     final currentPlanet = engine.planets[engine.currentPlanetIndex];
     final player = engine.player;
@@ -298,14 +413,42 @@ class GamePainter extends CustomPainter {
     final sign = currentPlanet.rotationSpeed >= 0 ? 1.0 : -1.0;
     final dirX = -sin(player.angle) * sign;
     final dirY = cos(player.angle) * sign;
+    final px = player.x;
+    final py = player.y;
 
-    _guidePaint.color = _playerColor.withValues(alpha: 0.2);
+    _guidePath.reset();
 
-    final start = Offset(player.x, player.y);
-    for (int d = 12; d < 80; d += 14) {
-      final p1 = start + Offset(dirX * d, dirY * d);
-      final p2 = start + Offset(dirX * (d + 6), dirY * (d + 6));
-      canvas.drawLine(p1, p2, _guidePaint);
+    if (colorBlindMode) {
+      // High-contrast accessibility guide: vivid amber dashed line with terminal directional arrow
+      _guidePaint.color = const Color(0xE6FFD600);
+      _guidePaint.strokeWidth = 2.0;
+
+      for (int d = 12; d < 110; d += 16) {
+        _guidePath.moveTo(px + dirX * d, py + dirY * d);
+        _guidePath.lineTo(px + dirX * (d + 9), py + dirY * (d + 9));
+      }
+
+      // Draw high-visibility chevron / arrowhead at the tip
+      final tipX = px + dirX * 116;
+      final tipY = py + dirY * 116;
+      final normalX = -dirY;
+      final normalY = dirX;
+      final baseX = tipX - dirX * 9;
+      final baseY = tipY - dirY * 9;
+      _guidePath.moveTo(tipX, tipY);
+      _guidePath.lineTo(baseX + normalX * 6, baseY + normalY * 6);
+      _guidePath.moveTo(tipX, tipY);
+      _guidePath.lineTo(baseX - normalX * 6, baseY - normalY * 6);
+      canvas.drawPath(_guidePath, _guidePaint);
+    } else {
+      _guidePaint.color = _styleFor(equippedPlanet).guideColor;
+      _guidePaint.strokeWidth = 1.0;
+
+      for (int d = 12; d < 80; d += 14) {
+        _guidePath.moveTo(px + dirX * d, py + dirY * d);
+        _guidePath.lineTo(px + dirX * (d + 6), py + dirY * (d + 6));
+      }
+      canvas.drawPath(_guidePath, _guidePaint);
     }
   }
 
@@ -317,71 +460,98 @@ class GamePainter extends CustomPainter {
     final isCleared = planet.cleared && !isCurrent;
 
     final world = planet.fleetPlanet;
+    final style = _styleFor(world);
 
     // ── Cleared State: Subdued Silhouette ──
     if (isCleared) {
-      _clearedOrbitPaint.color = _planetAccentColor.withValues(alpha: 0.12);
+      _clearedOrbitPaint.color = colorBlindMode
+          ? const Color(0x1F00E5FF)
+          : const Color(0x1F8CEFFF);
       canvas.drawCircle(center, planet.radius, _clearedOrbitPaint);
 
-      _clearedBodyPaint.color = world.primaryColor.withValues(alpha: 0.16);
+      _clearedBodyPaint.color = style.clearedBodyColor;
       canvas.drawCircle(center, coreRadius, _clearedBodyPaint);
       return;
     }
 
     // ── Gravitational Orbit Ring ──
-    _orbitPaint.color = isCurrent
-        ? world.primaryColor.withValues(alpha: 0.58)
-        : _planetAccentColor.withValues(alpha: 0.32);
-    canvas.drawCircle(center, planet.radius, _orbitPaint);
+    final isTarget = index == engine.currentPlanetIndex + 1;
+    if (colorBlindMode) {
+      if (isCurrent) {
+        _orbitPaint.color = const Color(0xD9FFD600);
+        _orbitPaint.strokeWidth = 2.2;
+        canvas.drawCircle(center, planet.radius, _orbitPaint);
+      } else if (isTarget) {
+        // High-contrast target planet orbit: electric cyan with distinct 4-quadrant cross-markers
+        _orbitPaint.color = const Color(0xE600E5FF);
+        _orbitPaint.strokeWidth = 2.4;
+        canvas.drawCircle(center, planet.radius, _orbitPaint);
 
-    // ── Atmospheric Outer Halo Glow ──
-    _haloGlowPaint.color = world.glowColor.withValues(alpha: 0.36);
-    canvas.drawCircle(center, coreRadius + 6.0, _haloGlowPaint);
-
-    // ── Planetary Rings for Ringed Worlds (e.g. Chronos, Zenith, Aether, Eclipse) ──
-    final isRinged = world.id == 'chronos' || world.id == 'aether' || world.id == 'eclipse' || world.id == 'void';
-    if (isRinged) {
-      _drawPlanetaryRings(canvas, center, coreRadius, world.primaryColor, behind: true);
+        // Draw 4 cardinal catch-target markers on the orbit perimeter
+        final r = planet.radius;
+        canvas.drawCircle(Offset(center.dx + r, center.dy), 3.0, _cbMarkerPaint);
+        canvas.drawCircle(Offset(center.dx, center.dy + r), 3.0, _cbMarkerPaint);
+        canvas.drawCircle(Offset(center.dx - r, center.dy), 3.0, _cbMarkerPaint);
+        canvas.drawCircle(Offset(center.dx, center.dy - r), 3.0, _cbMarkerPaint);
+      } else {
+        _orbitPaint.color = const Color(0x5900E5FF);
+        _orbitPaint.strokeWidth = 1.2;
+        canvas.drawCircle(center, planet.radius, _orbitPaint);
+      }
+    } else {
+      _orbitPaint.strokeWidth = 1.0;
+      _orbitPaint.color = isCurrent
+          ? style.currentOrbitColor
+          : const Color(0x528CEFFF);
+      canvas.drawCircle(center, planet.radius, _orbitPaint);
     }
 
-    // ── 3D Spherical Core (Image Texture or Procedural) ──
-    canvas.save();
-    canvas.clipRRect(RRect.fromRectAndRadius(
-      Rect.fromCircle(center: center, radius: coreRadius),
-      Radius.circular(coreRadius),
-    ));
+    // ── Atmospheric Outer Halo Glow (Single-pass GPU Radial Shader instead of MaskFilter.blur) ──
+    if (graphicsQuality == GraphicsQuality.low) {
+      canvas.drawCircle(center, coreRadius + 5.0, style.lowQualityHaloPaint);
+    } else {
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.scale(coreRadius + 15.0);
+      canvas.drawCircle(Offset.zero, 1.0, style.haloPaint);
+      canvas.restore();
+    }
 
-    final imgKey = _getImageKeyForWorld(world);
-    final texImage = planetImages?[imgKey];
+    // ── Planetary Rings for Ringed Worlds (Chronos, Aether, Eclipse, Void) ──
+    if (style.isRinged) {
+      _drawPlanetaryRings(canvas, center, coreRadius, style, behind: true);
+    }
 
+    // ── 3D Spherical Core (Pre-masked Circular Image Texture or Procedural) ──
+    final texImage = planetImages?[world.id];
     if (texImage != null) {
-      final src = Rect.fromLTWH(0, 0, texImage.width.toDouble(), texImage.height.toDouble());
+      // Texture is pre-cropped and pre-clipped to a crisp anti-aliased circle at load time!
       final dst = Rect.fromCircle(center: center, radius: coreRadius);
-      _texPaint.colorFilter = (world.id != 'terra' && world.id != 'ember' && world.id != 'aether')
-          ? ColorFilter.mode(world.primaryColor.withValues(alpha: 0.4), BlendMode.color)
-          : null;
       canvas.drawImageRect(
         texImage,
-        src,
+        _fullTexSrcRect,
         dst,
         _texPaint,
       );
+      _draw3DSphericalShading(canvas, center, coreRadius);
     } else {
+      canvas.save();
+      canvas.clipRRect(RRect.fromRectAndRadius(
+        Rect.fromCircle(center: center, radius: coreRadius),
+        Radius.circular(coreRadius),
+      ));
       _drawProceduralSurface(canvas, center, coreRadius, world);
+      _draw3DSphericalShading(canvas, center, coreRadius);
+      canvas.restore();
     }
 
-    // ── 3D Day/Night Specular & Terminator Shading ──
-    _draw3DSphericalShading(canvas, center, coreRadius);
-
-    canvas.restore();
-
     // ── Foreground Portion of Planetary Rings ──
-    if (isRinged) {
-      _drawPlanetaryRings(canvas, center, coreRadius, world.primaryColor, behind: false);
+    if (style.isRinged) {
+      _drawPlanetaryRings(canvas, center, coreRadius, style, behind: false);
     }
 
     // ── Atmospheric Sunlit Rim Light Arc ──
-    _rimPaint.color = world.glowColor.withValues(alpha: 0.75);
+    _rimPaint.color = style.rimColor;
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: coreRadius - 0.5),
       -2.4,
@@ -391,36 +561,29 @@ class GamePainter extends CustomPainter {
     );
   }
 
-  // ─── Planetary Rings ──────────────────────────────────────────────────────
+  // ─── Planetary Rings (Zero Rect allocation via Unit Scale) ────────────────
   void _drawPlanetaryRings(
     Canvas canvas,
     Offset center,
     double coreRadius,
-    Color ringColor, {
+    _WorldVisualStyle style, {
     required bool behind,
   }) {
     canvas.save();
     canvas.translate(center.dx, center.dy);
     canvas.rotate(-0.35); // tilt angle
+    canvas.scale(coreRadius);
 
-    // Clip to only draw behind or in front of the sphere
-    if (behind) {
-      canvas.clipRect(Rect.fromLTRB(-coreRadius * 2, -coreRadius * 2, coreRadius * 2, 0));
-    } else {
-      canvas.clipRect(Rect.fromLTRB(-coreRadius * 2, 0, coreRadius * 2, coreRadius * 2));
-    }
+    // Clip to only draw behind or in front of the sphere using const unit rects
+    canvas.clipRect(behind ? _ringClipBehind : _ringClipFront);
 
-    _outerRingPaint.color = ringColor.withValues(alpha: 0.55);
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset.zero, width: coreRadius * 2.8, height: coreRadius * 0.75),
-      _outerRingPaint,
-    );
+    _outerRingPaint.color = style.outerRingColor;
+    _outerRingPaint.strokeWidth = 2.0 / coreRadius;
+    canvas.drawOval(_outerRingUnitRect, _outerRingPaint);
 
-    _innerRingPaint.color = ringColor.withValues(alpha: 0.35);
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset.zero, width: coreRadius * 2.3, height: coreRadius * 0.6),
-      _innerRingPaint,
-    );
+    _innerRingPaint.color = style.innerRingColor;
+    _innerRingPaint.strokeWidth = 1.0 / coreRadius;
+    canvas.drawOval(_innerRingUnitRect, _innerRingPaint);
 
     canvas.restore();
   }
@@ -443,14 +606,13 @@ class GamePainter extends CustomPainter {
     double radius,
     FleetPlanet world,
   ) {
-    canvas.drawCircle(center, radius, Paint()..color = world.primaryColor);
+    _procFill.color = world.primaryColor;
+    canvas.drawCircle(center, radius, _procFill);
 
     if (world.category.toLowerCase().contains('desert') || world.id == 'ember') {
-      final craterShadow = Paint()..color = const Color(0xFF450A0A).withValues(alpha: 0.65);
-      final craterRim = Paint()
-        ..color = world.glowColor.withValues(alpha: 0.55)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2;
+      _procFill.color = const Color(0xFF450A0A).withValues(alpha: 0.65);
+      _procStroke.color = world.glowColor.withValues(alpha: 0.55);
+      _procStroke.strokeWidth = 1.2;
 
       final craters = [
         Offset(-radius * 0.32, -radius * 0.28),
@@ -463,13 +625,13 @@ class GamePainter extends CustomPainter {
       for (int i = 0; i < craters.length; i++) {
         final pos = center + craters[i];
         final r = sizes[i];
-        canvas.drawCircle(pos, r, craterShadow);
+        canvas.drawCircle(pos, r, _procFill);
         canvas.drawArc(
           Rect.fromCircle(center: pos, radius: r),
           -2.6,
           1.8,
           false,
-          craterRim,
+          _procStroke,
         );
       }
     } else if (world.category.toLowerCase().contains('gas') || world.id == 'aether' || world.id == 'eclipse') {
@@ -478,57 +640,67 @@ class GamePainter extends CustomPainter {
         world.primaryColor.withValues(alpha: 0.5),
         Colors.white.withValues(alpha: 0.35),
       ];
+      _procStroke.strokeWidth = radius * 0.22;
       for (int b = -2; b <= 2; b++) {
-        final bandPaint = Paint()
-          ..color = bandColors[(b.abs()) % bandColors.length]
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = radius * 0.22;
+        _procStroke.color = bandColors[(b.abs()) % bandColors.length];
         canvas.drawArc(
           Rect.fromCircle(center: center + Offset(0, b * radius * 0.26), radius: radius * 1.05),
           -0.4,
           3.9,
           false,
-          bandPaint,
+          _procStroke,
         );
       }
     } else if (world.category.toLowerCase().contains('cryo') || world.id == 'titan') {
-      final icePaint = Paint()
-        ..color = world.glowColor.withValues(alpha: 0.55)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0;
-      final p = Path()
-        ..moveTo(center.dx - radius * 0.6, center.dy - radius * 0.4)
-        ..lineTo(center.dx - radius * 0.1, center.dy)
-        ..lineTo(center.dx + radius * 0.5, center.dy - radius * 0.3)
-        ..moveTo(center.dx - radius * 0.1, center.dy)
-        ..lineTo(center.dx + radius * 0.2, center.dy + radius * 0.5);
-      canvas.drawPath(p, icePaint);
+      _procStroke.color = world.glowColor.withValues(alpha: 0.55);
+      _procStroke.strokeWidth = 1.0;
+      _procPath.reset();
+      _procPath.moveTo(center.dx - radius * 0.6, center.dy - radius * 0.4);
+      _procPath.lineTo(center.dx - radius * 0.1, center.dy);
+      _procPath.lineTo(center.dx + radius * 0.5, center.dy - radius * 0.3);
+      _procPath.moveTo(center.dx - radius * 0.1, center.dy);
+      _procPath.lineTo(center.dx + radius * 0.2, center.dy + radius * 0.5);
+      canvas.drawPath(_procPath, _procStroke);
     } else if (world.category.toLowerCase().contains('plasma') || world.id == 'nova' || world.id == 'solaris') {
-      final flarePaint = Paint()
-        ..color = world.glowColor.withValues(alpha: 0.5)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0;
-      canvas.drawCircle(center, radius * 0.65, flarePaint);
+      _procStroke.color = world.glowColor.withValues(alpha: 0.5);
+      _procStroke.strokeWidth = 2.0;
+      canvas.drawCircle(center, radius * 0.65, _procStroke);
     } else {
       // Terrestrial or oceanic continents
-      final landPaint = Paint()..color = const Color(0xFF22C55E).withValues(alpha: 0.55);
+      _procFill.color = const Color(0xFF22C55E).withValues(alpha: 0.55);
       canvas.drawOval(
         Rect.fromCenter(
           center: center + Offset(-radius * 0.25, -radius * 0.15),
           width: radius * 0.9,
           height: radius * 0.65,
         ),
-        landPaint,
+        _procFill,
       );
-      final cloudPaint = Paint()..color = Colors.white.withValues(alpha: 0.38);
+      _procStroke.color = Colors.white.withValues(alpha: 0.38);
+      _procStroke.strokeWidth = radius * 0.2;
       canvas.drawArc(
         Rect.fromCircle(center: center + Offset(0, -radius * 0.2), radius: radius * 0.7),
         -0.8,
         2.4,
         false,
-        cloudPaint..style = PaintingStyle.stroke..strokeWidth = radius * 0.2,
+        _procStroke,
       );
     }
+  }
+
+  static final Map<Color, List<Color>> _trailColorsCache = {};
+
+  static List<Color> _getTrailColors(Color playerColor) {
+    var list = _trailColorsCache[playerColor];
+    if (list != null) return list;
+    list = List.generate(20, (i) {
+      final progress = i / 20.0;
+      final alpha = ((1.0 - progress) * 0.95).clamp(0.0, 1.0);
+      return Color.lerp(Colors.white, playerColor, progress * 0.7)!
+          .withValues(alpha: alpha);
+    });
+    _trailColorsCache[playerColor] = list;
+    return list;
   }
 
   // ─── Satellite Thruster Exhaust Ribbon ─────────────────────────────────────
@@ -537,32 +709,30 @@ class GamePainter extends CustomPainter {
     final count = trail.length;
     if (count < 2) return;
 
-    // 1. Single smooth glowing ribbon path (1 drawPath call instead of 20 blur calls)
-    final path = Path();
-    path.moveTo(trail[0].x, trail[0].y);
+    final style = _styleFor(equippedPlanet);
+
+    // 1. Single smooth glowing ribbon path (zero MaskFilter.blur FBO switches)
+    _trailPath.reset();
+    _trailPath.moveTo(trail[0].x, trail[0].y);
     for (int i = 1; i < count; i++) {
-      path.lineTo(trail[i].x, trail[i].y);
+      _trailPath.lineTo(trail[i].x, trail[i].y);
     }
 
-    _trailGlowPaint.strokeWidth = 6.0;
-    _trailGlowPaint.color = equippedPlanet.glowColor.withValues(alpha: 0.35);
-    canvas.drawPath(path, _trailGlowPaint);
+    _trailGlowPaint.strokeWidth = 7.0;
+    _trailGlowPaint.color = style.trailGlowColor;
+    canvas.drawPath(_trailPath, _trailGlowPaint);
 
-    // 2. Core plasma line segments (fast linear alpha falloff without blur)
+    // 2. Core plasma line segments (cached gradient colors)
+    final colors = _getTrailColors(_playerColor);
     for (int i = 0; i < count - 1; i++) {
-      final p1 = Offset(trail[i].x, trail[i].y);
-      final p2 = Offset(trail[i + 1].x, trail[i + 1].y);
+      final pt1 = trail[i];
+      final pt2 = trail[i + 1];
       final progress = i / count;
-      final alpha = ((1.0 - progress) * 0.95).clamp(0.0, 1.0);
       final width = (1.0 - progress) * 3.5 + 1.2;
 
       _trailCorePaint.strokeWidth = width;
-      _trailCorePaint.color = Color.lerp(
-        Colors.white,
-        _playerColor,
-        progress * 0.7,
-      )!.withValues(alpha: alpha);
-      canvas.drawLine(p1, p2, _trailCorePaint);
+      _trailCorePaint.color = colors[i % colors.length];
+      canvas.drawLine(Offset(pt1.x, pt1.y), Offset(pt2.x, pt2.y), _trailCorePaint);
     }
   }
 
@@ -572,16 +742,30 @@ class GamePainter extends CustomPainter {
 
     // Compute heading direction
     double heading = 0.0;
-    if (player.isOrbiting && engine.currentPlanetIndex < engine.planets.length) {
+    if (player.isOrbiting &&
+        engine.currentPlanetIndex >= 0 &&
+        engine.currentPlanetIndex < engine.planets.length) {
       final planet = engine.planets[engine.currentPlanetIndex];
       heading = player.angle + (planet.rotationSpeed >= 0 ? pi / 2 : -pi / 2);
     } else {
       heading = atan2(player.vy, player.vx);
     }
 
-    // 1. Outer halo glow matching companion color
-    _playerHaloPaint.color = _playerColor.withValues(alpha: 0.45);
-    canvas.drawCircle(pos, 13.0, _playerHaloPaint);
+    // 1. Outer halo glow matching companion color (Single-pass GPU Radial Shader)
+    canvas.save();
+    canvas.translate(pos.dx, pos.dy);
+    canvas.scale(15.0);
+    canvas.drawCircle(
+      Offset.zero,
+      1.0,
+      colorBlindMode ? _cbPlayerHaloPaint : _styleFor(equippedPlanet).playerHaloPaint,
+    );
+    canvas.restore();
+
+    if (colorBlindMode) {
+      // High-contrast accessibility indicator: distinct sharp amber ring around vessel
+      canvas.drawCircle(pos, 15.0, _cbPlayerRingPaint);
+    }
 
     // 2. High-tech Satellite Probe Geometry rotated to heading
     canvas.save();
@@ -598,217 +782,289 @@ class GamePainter extends CustomPainter {
     switch (world.id) {
       case 'terra':
         // ── Luna (Natural Moon) ──
-        // Pearly cratered lunar sphere
-        canvas.drawCircle(Offset.zero, 5.2, Paint()..color = const Color(0xFFE2E8F0));
-        canvas.drawCircle(const Offset(-1.6, -1.4), 1.1, Paint()..color = const Color(0xFF94A3B8));
-        canvas.drawCircle(const Offset(1.8, 0.8), 1.5, Paint()..color = const Color(0xFF94A3B8));
-        canvas.drawCircle(const Offset(-0.4, 2.2), 0.9, Paint()..color = const Color(0xFF94A3B8));
+        _vesselFill.color = const Color(0xFFE2E8F0);
+        canvas.drawCircle(Offset.zero, 5.2, _vesselFill);
+        _vesselFill.color = const Color(0xFF94A3B8);
+        canvas.drawCircle(const Offset(-1.6, -1.4), 1.1, _vesselFill);
+        canvas.drawCircle(const Offset(1.8, 0.8), 1.5, _vesselFill);
+        canvas.drawCircle(const Offset(-0.4, 2.2), 0.9, _vesselFill);
+        _vesselStroke.style = PaintingStyle.stroke;
+        _vesselStroke.strokeWidth = 1.0;
+        _vesselStroke.color = Colors.white;
         canvas.drawArc(
-          Rect.fromCircle(center: Offset.zero, radius: 5.2),
+          _terraArcRect,
           -2.4,
           2.0,
           false,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.0
-            ..color = Colors.white,
+          _vesselStroke,
         );
         break;
 
       case 'ember':
         // ── Scout-7 (Reconnaissance Probe) ──
-        // Stealth swept wings, antenna pin, diamond hull
-        final wingPaint = Paint()..color = const Color(0xFF38BDF8);
-        final wingBorder = Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.8
-          ..color = Colors.white;
-        canvas.drawRect(const Rect.fromLTWH(-1.5, -9.0, 3.0, 5.0), wingPaint);
-        canvas.drawRect(const Rect.fromLTWH(-1.5, -9.0, 3.0, 5.0), wingBorder);
-        canvas.drawRect(const Rect.fromLTWH(-1.5, 4.0, 3.0, 5.0), wingPaint);
-        canvas.drawRect(const Rect.fromLTWH(-1.5, 4.0, 3.0, 5.0), wingBorder);
+        _vesselFill.color = const Color(0xFF38BDF8);
+        _vesselStroke.style = PaintingStyle.stroke;
+        _vesselStroke.strokeWidth = 0.8;
+        _vesselStroke.color = Colors.white;
+        canvas.drawRect(const Rect.fromLTWH(-1.5, -9.0, 3.0, 5.0), _vesselFill);
+        canvas.drawRect(const Rect.fromLTWH(-1.5, -9.0, 3.0, 5.0), _vesselStroke);
+        canvas.drawRect(const Rect.fromLTWH(-1.5, 4.0, 3.0, 5.0), _vesselFill);
+        canvas.drawRect(const Rect.fromLTWH(-1.5, 4.0, 3.0, 5.0), _vesselStroke);
 
-        final hull = Path()
-          ..moveTo(6.0, 0)
-          ..lineTo(0, -3.2)
-          ..lineTo(-5.0, 0)
-          ..lineTo(0, 3.2)
-          ..close();
-        canvas.drawPath(hull, Paint()..color = const Color(0xFF0F172A));
-        canvas.drawPath(hull, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.0..color = Colors.white);
+        _vesselPath.reset();
+        _vesselPath.moveTo(6.0, 0);
+        _vesselPath.lineTo(0, -3.2);
+        _vesselPath.lineTo(-5.0, 0);
+        _vesselPath.lineTo(0, 3.2);
+        _vesselPath.close();
 
-        canvas.drawLine(const Offset(6.0, 0), const Offset(9.0, 0), Paint()..color = const Color(0xFF8CEFFF)..strokeWidth = 1.2);
-        canvas.drawCircle(const Offset(9.0, 0), 1.2, Paint()..color = Colors.white);
-        canvas.drawCircle(Offset.zero, 2.2, Paint()..color = Colors.white);
+        _vesselFill.color = const Color(0xFF0F172A);
+        canvas.drawPath(_vesselPath, _vesselFill);
+        _vesselStroke.strokeWidth = 1.0;
+        _vesselStroke.color = Colors.white;
+        canvas.drawPath(_vesselPath, _vesselStroke);
+
+        _vesselStroke.color = const Color(0xFF8CEFFF);
+        _vesselStroke.strokeWidth = 1.2;
+        canvas.drawLine(const Offset(6.0, 0), const Offset(9.0, 0), _vesselStroke);
+
+        _vesselFill.color = Colors.white;
+        canvas.drawCircle(const Offset(9.0, 0), 1.2, _vesselFill);
+        canvas.drawCircle(Offset.zero, 2.2, _vesselFill);
         break;
 
       case 'aether':
         // ── Ion Harvester (Mining Vessel) ──
-        // Heavy twin side engine nacelles, extraction prongs forward
-        final nacellePaint = Paint()..color = const Color(0xFF1E293B);
-        final nacelleBorder = Paint()..style = PaintingStyle.stroke..strokeWidth = 0.9..color = const Color(0xFFC084FC);
-        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(-4.5, -8.0, 8.0, 3.2), const Radius.circular(1.2)), nacellePaint);
-        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(-4.5, -8.0, 8.0, 3.2), const Radius.circular(1.2)), nacelleBorder);
-        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(-4.5, 4.8, 8.0, 3.2), const Radius.circular(1.2)), nacellePaint);
-        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(-4.5, 4.8, 8.0, 3.2), const Radius.circular(1.2)), nacelleBorder);
+        _vesselFill.color = const Color(0xFF1E293B);
+        _vesselStroke.style = PaintingStyle.stroke;
+        _vesselStroke.strokeWidth = 0.9;
+        _vesselStroke.color = const Color(0xFFC084FC);
+        canvas.drawRRect(_aetherWingTopRRect, _vesselFill);
+        canvas.drawRRect(_aetherWingTopRRect, _vesselStroke);
+        canvas.drawRRect(_aetherWingBotRRect, _vesselFill);
+        canvas.drawRRect(_aetherWingBotRRect, _vesselStroke);
 
-        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(-4.0, -3.5, 8.0, 7.0), const Radius.circular(1.5)), Paint()..color = const Color(0xFF0F172A));
-        canvas.drawLine(const Offset(4.0, -2.5), const Offset(7.5, -2.5), Paint()..color = const Color(0xFFC084FC)..strokeWidth = 1.2);
-        canvas.drawLine(const Offset(4.0, 2.5), const Offset(7.5, 2.5), Paint()..color = const Color(0xFFC084FC)..strokeWidth = 1.2);
-        canvas.drawCircle(Offset.zero, 2.5, Paint()..color = const Color(0xFF8CEFFF));
-        canvas.drawCircle(Offset.zero, 1.2, Paint()..color = Colors.white);
+        _vesselFill.color = const Color(0xFF0F172A);
+        canvas.drawRRect(_aetherBodyRRect, _vesselFill);
+
+        _vesselStroke.color = const Color(0xFFC084FC);
+        _vesselStroke.strokeWidth = 1.2;
+        canvas.drawLine(const Offset(4.0, -2.5), const Offset(7.5, -2.5), _vesselStroke);
+        canvas.drawLine(const Offset(4.0, 2.5), const Offset(7.5, 2.5), _vesselStroke);
+
+        _vesselFill.color = const Color(0xFF8CEFFF);
+        canvas.drawCircle(Offset.zero, 2.5, _vesselFill);
+        _vesselFill.color = Colors.white;
+        canvas.drawCircle(Offset.zero, 1.2, _vesselFill);
         break;
 
       case 'chronos':
         // ── Vanguard-I (Temporal Observatory) ──
-        // Delta prism hull with rotating temporal gyro ring
-        final p = Path()
-          ..moveTo(7.5, 0)
-          ..lineTo(-4.5, -4.5)
-          ..lineTo(-2.0, 0)
-          ..lineTo(-4.5, 4.5)
-          ..close();
-        canvas.drawPath(p, Paint()..color = const Color(0xFF0C4A6E));
-        canvas.drawPath(p, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.0..color = const Color(0xFF38BDF8));
-        canvas.drawCircle(const Offset(-1.0, 0), 5.5, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.0..color = const Color(0xFFBAE6FD));
-        canvas.drawCircle(const Offset(-1.0, 0), 2.2, Paint()..color = Colors.white);
+        _vesselPath.reset();
+        _vesselPath.moveTo(7.5, 0);
+        _vesselPath.lineTo(-4.5, -4.5);
+        _vesselPath.lineTo(-2.0, 0);
+        _vesselPath.lineTo(-4.5, 4.5);
+        _vesselPath.close();
+
+        _vesselFill.color = const Color(0xFF0C4A6E);
+        canvas.drawPath(_vesselPath, _vesselFill);
+        _vesselStroke.style = PaintingStyle.stroke;
+        _vesselStroke.strokeWidth = 1.0;
+        _vesselStroke.color = const Color(0xFF38BDF8);
+        canvas.drawPath(_vesselPath, _vesselStroke);
+
+        _vesselStroke.color = const Color(0xFFBAE6FD);
+        canvas.drawCircle(const Offset(-1.0, 0), 5.5, _vesselStroke);
+        _vesselFill.color = Colors.white;
+        canvas.drawCircle(const Offset(-1.0, 0), 2.2, _vesselFill);
         break;
 
       case 'nova':
         // ── Solaris (Coronal Skimmer) ──
-        // Needle heat-shield hull with twin golden radiator fins
-        final fins = Path()
-          ..moveTo(-1.0, -2.0)
-          ..lineTo(-4.5, -7.5)
-          ..lineTo(-3.0, -2.0)
-          ..moveTo(-1.0, 2.0)
-          ..lineTo(-4.5, 7.5)
-          ..lineTo(-3.0, 2.0);
-        canvas.drawPath(fins, Paint()..color = const Color(0xFFFEF08A)..style = PaintingStyle.stroke..strokeWidth = 1.5);
+        _vesselPath.reset();
+        _vesselPath.moveTo(-1.0, -2.0);
+        _vesselPath.lineTo(-4.5, -7.5);
+        _vesselPath.lineTo(-3.0, -2.0);
+        _vesselPath.moveTo(-1.0, 2.0);
+        _vesselPath.lineTo(-4.5, 7.5);
+        _vesselPath.lineTo(-3.0, 2.0);
+        _vesselStroke.style = PaintingStyle.stroke;
+        _vesselStroke.strokeWidth = 1.5;
+        _vesselStroke.color = const Color(0xFFFEF08A);
+        canvas.drawPath(_vesselPath, _vesselStroke);
 
-        final p = Path()
-          ..moveTo(8.5, 0)
-          ..lineTo(-5.5, -2.0)
-          ..lineTo(-4.0, 0)
-          ..lineTo(-5.5, 2.0)
-          ..close();
-        canvas.drawPath(p, Paint()..color = const Color(0xFF451A03));
-        canvas.drawPath(p, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.0..color = const Color(0xFFFBBF24));
-        canvas.drawCircle(Offset.zero, 2.2, Paint()..color = const Color(0xFFFEF08A));
-        canvas.drawCircle(Offset.zero, 1.0, Paint()..color = Colors.white);
+        _vesselPath2.reset();
+        _vesselPath2.moveTo(8.5, 0);
+        _vesselPath2.lineTo(-5.5, -2.0);
+        _vesselPath2.lineTo(-4.0, 0);
+        _vesselPath2.lineTo(-5.5, 2.0);
+        _vesselPath2.close();
+
+        _vesselFill.color = const Color(0xFF451A03);
+        canvas.drawPath(_vesselPath2, _vesselFill);
+        _vesselStroke.strokeWidth = 1.0;
+        _vesselStroke.color = const Color(0xFFFBBF24);
+        canvas.drawPath(_vesselPath2, _vesselStroke);
+
+        _vesselFill.color = const Color(0xFFFEF08A);
+        canvas.drawCircle(Offset.zero, 2.2, _vesselFill);
+        _vesselFill.color = Colors.white;
+        canvas.drawCircle(Offset.zero, 1.0, _vesselFill);
         break;
 
       case 'titan':
         // ── Hyperion (Methane Drifter) ──
-        // Cryo delta glider with frosted canopy
-        final p = Path()
-          ..moveTo(7.0, 0)
-          ..lineTo(-4.5, -8.0)
-          ..lineTo(-2.0, -2.5)
-          ..lineTo(-2.0, 2.5)
-          ..lineTo(-4.5, 8.0)
-          ..close();
-        canvas.drawPath(p, Paint()..color = const Color(0xFF042F2E));
-        canvas.drawPath(p, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.0..color = const Color(0xFF2DD4BF));
-        canvas.drawOval(Rect.fromCenter(center: const Offset(1.0, 0), width: 5.0, height: 2.5), Paint()..color = const Color(0xFF99F6E4));
-        canvas.drawCircle(const Offset(1.0, 0), 1.2, Paint()..color = Colors.white);
+        _vesselPath.reset();
+        _vesselPath.moveTo(7.0, 0);
+        _vesselPath.lineTo(-4.5, -8.0);
+        _vesselPath.lineTo(-2.0, -2.5);
+        _vesselPath.lineTo(-2.0, 2.5);
+        _vesselPath.lineTo(-4.5, 8.0);
+        _vesselPath.close();
+
+        _vesselFill.color = const Color(0xFF042F2E);
+        canvas.drawPath(_vesselPath, _vesselFill);
+        _vesselStroke.style = PaintingStyle.stroke;
+        _vesselStroke.strokeWidth = 1.0;
+        _vesselStroke.color = const Color(0xFF2DD4BF);
+        canvas.drawPath(_vesselPath, _vesselStroke);
+
+        _vesselFill.color = const Color(0xFF99F6E4);
+        canvas.drawOval(_titanOvalRect, _vesselFill);
+        _vesselFill.color = Colors.white;
+        canvas.drawCircle(const Offset(1.0, 0), 1.2, _vesselFill);
         break;
 
       case 'gliese':
         // ── Deep Probe (Oceanic Surveyor) ──
-        // Bathysphere spherical hull with stabilizer fins and observation dome
-        canvas.drawCircle(Offset.zero, 4.5, Paint()..color = const Color(0xFF1E3A8A));
-        canvas.drawCircle(Offset.zero, 4.5, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.0..color = const Color(0xFF60A5FA));
-        canvas.drawLine(const Offset(-2.0, -4.5), const Offset(-4.5, -7.0), Paint()..color = const Color(0xFF93C5FD)..strokeWidth = 1.5);
-        canvas.drawLine(const Offset(-2.0, 4.5), const Offset(-4.5, 7.0), Paint()..color = const Color(0xFF93C5FD)..strokeWidth = 1.5);
-        canvas.drawCircle(const Offset(3.5, 0), 2.0, Paint()..color = const Color(0xFF93C5FD));
-        canvas.drawCircle(const Offset(3.5, 0), 1.0, Paint()..color = Colors.white);
+        _vesselFill.color = const Color(0xFF1E3A8A);
+        canvas.drawCircle(Offset.zero, 4.5, _vesselFill);
+        _vesselStroke.style = PaintingStyle.stroke;
+        _vesselStroke.strokeWidth = 1.0;
+        _vesselStroke.color = const Color(0xFF60A5FA);
+        canvas.drawCircle(Offset.zero, 4.5, _vesselStroke);
+
+        _vesselStroke.color = const Color(0xFF93C5FD);
+        _vesselStroke.strokeWidth = 1.5;
+        canvas.drawLine(const Offset(-2.0, -4.5), const Offset(-4.5, -7.0), _vesselStroke);
+        canvas.drawLine(const Offset(-2.0, 4.5), const Offset(-4.5, 7.0), _vesselStroke);
+
+        _vesselFill.color = const Color(0xFF93C5FD);
+        canvas.drawCircle(const Offset(3.5, 0), 2.0, _vesselFill);
+        _vesselFill.color = Colors.white;
+        canvas.drawCircle(const Offset(3.5, 0), 1.0, _vesselFill);
         break;
 
       case 'nebula9':
         // ── Void Ray (Matter Harvester) ──
-        // Crystalline dark matter trident
-        final p = Path()
-          ..moveTo(8.5, 0)
-          ..lineTo(0, -1.8)
-          ..lineTo(-4.5, 0)
-          ..lineTo(0, 1.8)
-          ..close();
-        canvas.drawPath(p, Paint()..color = const Color(0xFF701A75));
-        canvas.drawPath(p, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.0..color = const Color(0xFFF472B6));
+        _vesselPath.reset();
+        _vesselPath.moveTo(8.5, 0);
+        _vesselPath.lineTo(0, -1.8);
+        _vesselPath.lineTo(-4.5, 0);
+        _vesselPath.lineTo(0, 1.8);
+        _vesselPath.close();
 
-        final p2 = Path()
-          ..moveTo(5.5, -6.0)
-          ..lineTo(1.0, -3.5)
-          ..lineTo(-3.5, -5.5)
-          ..moveTo(5.5, 6.0)
-          ..lineTo(1.0, 3.5)
-          ..lineTo(-3.5, 5.5);
-        canvas.drawPath(p2, Paint()..color = const Color(0xFFFBCFE8)..style = PaintingStyle.stroke..strokeWidth = 1.3);
-        canvas.drawCircle(Offset.zero, 2.2, Paint()..color = const Color(0xFFF472B6));
-        canvas.drawCircle(Offset.zero, 1.0, Paint()..color = Colors.white);
+        _vesselFill.color = const Color(0xFF701A75);
+        canvas.drawPath(_vesselPath, _vesselFill);
+        _vesselStroke.style = PaintingStyle.stroke;
+        _vesselStroke.strokeWidth = 1.0;
+        _vesselStroke.color = const Color(0xFFF472B6);
+        canvas.drawPath(_vesselPath, _vesselStroke);
+
+        _vesselPath2.reset();
+        _vesselPath2.moveTo(5.5, -6.0);
+        _vesselPath2.lineTo(1.0, -3.5);
+        _vesselPath2.lineTo(-3.5, -5.5);
+        _vesselPath2.moveTo(5.5, 6.0);
+        _vesselPath2.lineTo(1.0, 3.5);
+        _vesselPath2.lineTo(-3.5, 5.5);
+        _vesselStroke.color = const Color(0xFFFBCFE8);
+        _vesselStroke.strokeWidth = 1.3;
+        canvas.drawPath(_vesselPath2, _vesselStroke);
+
+        _vesselFill.color = const Color(0xFFF472B6);
+        canvas.drawCircle(Offset.zero, 2.2, _vesselFill);
+        _vesselFill.color = Colors.white;
+        canvas.drawCircle(Offset.zero, 1.0, _vesselFill);
         break;
 
       case 'solaris':
         // ── Helios (Fusion Collector) ──
-        // Toroidal magnetic containment ring vessel
-        canvas.drawCircle(Offset.zero, 5.2, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.6..color = const Color(0xFFFB923C));
-        canvas.drawLine(const Offset(-4.0, 0), const Offset(4.0, 0), Paint()..color = Colors.white..strokeWidth = 0.8);
-        canvas.drawLine(const Offset(0, -4.0), const Offset(0, 4.0), Paint()..color = Colors.white..strokeWidth = 0.8);
-        canvas.drawCircle(Offset.zero, 2.5, Paint()..color = const Color(0xFFFED7AA));
-        canvas.drawCircle(Offset.zero, 1.2, Paint()..color = Colors.white);
+        _vesselStroke.style = PaintingStyle.stroke;
+        _vesselStroke.strokeWidth = 1.6;
+        _vesselStroke.color = const Color(0xFFFB923C);
+        canvas.drawCircle(Offset.zero, 5.2, _vesselStroke);
+
+        _vesselStroke.color = Colors.white;
+        _vesselStroke.strokeWidth = 0.8;
+        canvas.drawLine(const Offset(-4.0, 0), const Offset(4.0, 0), _vesselStroke);
+        canvas.drawLine(const Offset(0, -4.0), const Offset(0, 4.0), _vesselStroke);
+
+        _vesselFill.color = const Color(0xFFFED7AA);
+        canvas.drawCircle(Offset.zero, 2.5, _vesselFill);
+        _vesselFill.color = Colors.white;
+        canvas.drawCircle(Offset.zero, 1.2, _vesselFill);
         break;
 
       case 'eclipse':
         // ── Umbra (Shadow Drone) ──
-        // Diamond faceted stealth drone with violet conduit lines
-        final p = Path()
-          ..moveTo(7.0, 0)
-          ..lineTo(0, -4.0)
-          ..lineTo(-5.0, 0)
-          ..lineTo(0, 4.0)
-          ..close();
-        canvas.drawPath(p, Paint()..color = const Color(0xFF2E1065));
-        canvas.drawPath(p, Paint()..style = PaintingStyle.stroke..strokeWidth = 1.0..color = const Color(0xFFA78BFA));
-        canvas.drawLine(const Offset(-2.0, -2.0), const Offset(4.0, 0), Paint()..color = const Color(0xFFDDD6FE)..strokeWidth = 1.0);
-        canvas.drawLine(const Offset(-2.0, 2.0), const Offset(4.0, 0), Paint()..color = const Color(0xFFDDD6FE)..strokeWidth = 1.0);
-        canvas.drawCircle(Offset.zero, 1.8, Paint()..color = Colors.white);
+        _vesselPath.reset();
+        _vesselPath.moveTo(7.0, 0);
+        _vesselPath.lineTo(0, -4.0);
+        _vesselPath.lineTo(-5.0, 0);
+        _vesselPath.lineTo(0, 4.0);
+        _vesselPath.close();
+
+        _vesselFill.color = const Color(0xFF2E1065);
+        canvas.drawPath(_vesselPath, _vesselFill);
+        _vesselStroke.style = PaintingStyle.stroke;
+        _vesselStroke.strokeWidth = 1.0;
+        _vesselStroke.color = const Color(0xFFA78BFA);
+        canvas.drawPath(_vesselPath, _vesselStroke);
+
+        _vesselStroke.color = const Color(0xFFDDD6FE);
+        canvas.drawLine(const Offset(-2.0, -2.0), const Offset(4.0, 0), _vesselStroke);
+        canvas.drawLine(const Offset(-2.0, 2.0), const Offset(4.0, 0), _vesselStroke);
+
+        _vesselFill.color = Colors.white;
+        canvas.drawCircle(Offset.zero, 1.8, _vesselFill);
         break;
 
       case 'orion':
         // ── Rigel-X (Quantum Relay) ──
-        // Twin-boom catamaran vessel with quantum emitter bridge
-        final boomPaint = Paint()..color = const Color(0xFF064E3B);
-        final boomBorder = Paint()..style = PaintingStyle.stroke..strokeWidth = 0.8..color = const Color(0xFF34D399);
-        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(-4.5, -5.5, 9.0, 2.2), const Radius.circular(1.0)), boomPaint);
-        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(-4.5, -5.5, 9.0, 2.2), const Radius.circular(1.0)), boomBorder);
-        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(-4.5, 3.3, 9.0, 2.2), const Radius.circular(1.0)), boomPaint);
-        canvas.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(-4.5, 3.3, 9.0, 2.2), const Radius.circular(1.0)), boomBorder);
+        _vesselFill.color = const Color(0xFF064E3B);
+        _vesselStroke.style = PaintingStyle.stroke;
+        _vesselStroke.strokeWidth = 0.8;
+        _vesselStroke.color = const Color(0xFF34D399);
+        canvas.drawRRect(_orionWingTopRRect, _vesselFill);
+        canvas.drawRRect(_orionWingTopRRect, _vesselStroke);
+        canvas.drawRRect(_orionWingBotRRect, _vesselFill);
+        canvas.drawRRect(_orionWingBotRRect, _vesselStroke);
 
-        canvas.drawRect(const Rect.fromLTWH(-1.5, -3.3, 3.0, 6.6), Paint()..color = const Color(0xFFA7F3D0));
-        canvas.drawCircle(Offset.zero, 1.8, Paint()..color = Colors.white);
+        _vesselFill.color = const Color(0xFFA7F3D0);
+        canvas.drawRect(const Rect.fromLTWH(-1.5, -3.3, 3.0, 6.6), _vesselFill);
+        _vesselFill.color = Colors.white;
+        canvas.drawCircle(Offset.zero, 1.8, _vesselFill);
         break;
 
       case 'void':
       default:
         // ── Infinity (Singularity Probe) ──
-        // Warp ring with miniature singularity black hole core
-        canvas.drawOval(
-          Rect.fromCenter(center: Offset.zero, width: 11.0, height: 7.0),
-          Paint()..style = PaintingStyle.stroke..strokeWidth = 1.4..color = const Color(0xFFE879F9),
-        );
-        canvas.drawCircle(Offset.zero, 2.4, Paint()..color = Colors.black);
-        canvas.drawCircle(Offset.zero, 2.4, Paint()..style = PaintingStyle.stroke..strokeWidth = 0.9..color = Colors.white);
-        canvas.drawCircle(Offset.zero, 1.0, Paint()..color = const Color(0xFFF5D0FE));
+        _vesselStroke.style = PaintingStyle.stroke;
+        _vesselStroke.strokeWidth = 1.4;
+        _vesselStroke.color = const Color(0xFFE879F9);
+        canvas.drawOval(_voidOvalRect, _vesselStroke);
+
+        _vesselFill.color = Colors.black;
+        canvas.drawCircle(Offset.zero, 2.4, _vesselFill);
+        _vesselStroke.strokeWidth = 0.9;
+        _vesselStroke.color = Colors.white;
+        canvas.drawCircle(Offset.zero, 2.4, _vesselStroke);
+        _vesselFill.color = const Color(0xFFF5D0FE);
+        canvas.drawCircle(Offset.zero, 1.0, _vesselFill);
         break;
     }
-  }
-
-  // ─── Theme Helpers ────────────────────────────────────────────────────────
-  String _getImageKeyForWorld(FleetPlanet world) {
-    if (world.assetPath.contains('ember')) return 'ember';
-    if (world.assetPath.contains('aether')) return 'aether';
-    return 'terra';
   }
 
   @override

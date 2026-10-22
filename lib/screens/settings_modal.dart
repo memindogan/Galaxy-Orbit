@@ -19,9 +19,10 @@ library;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+
+import '../services/haptic_service.dart';
 
 import '../providers/settings_provider.dart';
 
@@ -32,29 +33,26 @@ class SettingsModal extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<SettingsProvider>(
       builder: (context, settings, _) {
-        return ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0C1626).withValues(alpha: 0.95),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                border: const Border(
-                  top: BorderSide(color: Color(0xFF1E3250), width: 1.2),
-                  left: BorderSide(color: Color(0xFF1E3250), width: 1.2),
-                  right: BorderSide(color: Color(0xFF1E3250), width: 1.2),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    blurRadius: 32,
-                    offset: const Offset(0, -8),
-                  ),
-                ],
+        final isLowQuality = settings.graphicsQuality == GraphicsQuality.low;
+        final sheetContent = Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0C1626).withValues(alpha: isLowQuality ? 0.98 : 0.95),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: const Border(
+              top: BorderSide(color: Color(0xFF1E3250), width: 1.2),
+              left: BorderSide(color: Color(0xFF1E3250), width: 1.2),
+              right: BorderSide(color: Color(0xFF1E3250), width: 1.2),
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x99000000),
+                blurRadius: 32,
+                offset: Offset(0, -8),
               ),
-              child: SingleChildScrollView(
+            ],
+          ),
+          child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -89,7 +87,7 @@ class SettingsModal extends StatelessWidget {
                         GestureDetector(
                           onTap: () {
                             if (settings.vibrationEnabled) {
-                              HapticFeedback.selectionClick();
+                              HapticService.selectionClick();
                             }
                             Navigator.of(context).pop();
                           },
@@ -149,7 +147,7 @@ class SettingsModal extends StatelessWidget {
                       label: settings.strings.hapticFeedback,
                       value: settings.vibrationEnabled,
                       onChanged: (v) {
-                        if (v) HapticFeedback.mediumImpact();
+                        if (v) HapticService.mediumImpact();
                         settings.vibrationEnabled = v;
                       },
                     ),
@@ -179,7 +177,7 @@ class SettingsModal extends StatelessWidget {
                       value: settings.reducedMotion,
                       onChanged: (v) {
                         if (settings.vibrationEnabled) {
-                          HapticFeedback.selectionClick();
+                          HapticService.selectionClick();
                         }
                         settings.reducedMotion = v;
                       },
@@ -192,7 +190,7 @@ class SettingsModal extends StatelessWidget {
                       valueText: settings.strings.graphicsQualityLabel(settings.graphicsQuality),
                       onTap: () {
                         if (settings.vibrationEnabled) {
-                          HapticFeedback.selectionClick();
+                          HapticService.selectionClick();
                         }
                         settings.cycleGraphicsQuality();
                       },
@@ -205,7 +203,7 @@ class SettingsModal extends StatelessWidget {
                       valueText: settings.language,
                       onTap: () {
                         if (settings.vibrationEnabled) {
-                          HapticFeedback.selectionClick();
+                          HapticService.selectionClick();
                         }
                         settings.cycleLanguage();
                       },
@@ -218,7 +216,7 @@ class SettingsModal extends StatelessWidget {
                       value: settings.colorBlindMode,
                       onChanged: (v) {
                         if (settings.vibrationEnabled) {
-                          HapticFeedback.selectionClick();
+                          HapticService.selectionClick();
                         }
                         settings.colorBlindMode = v;
                       },
@@ -237,11 +235,24 @@ class SettingsModal extends StatelessWidget {
                         ),
                       ),
                     ),
-                    SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
+                    SizedBox(height: MediaQuery.paddingOf(context).bottom + 8),
                   ],
                 ),
               ),
-            ),
+            );
+
+        if (isLowQuality) {
+          return ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            child: sheetContent,
+          );
+        }
+
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: sheetContent,
           ),
         );
       },

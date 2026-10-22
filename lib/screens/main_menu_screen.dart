@@ -19,10 +19,13 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../constants/theme_constants.dart';
+import '../l10n/app_strings.dart';
 import '../models/fleet_planet.dart';
 import '../providers/game_state_provider.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/figma_icons.dart';
+import '../services/audio_service.dart';
+import '../services/haptic_service.dart';
 import 'game_screen.dart';
 import 'hangar_screen.dart';
 import 'settings_modal.dart';
@@ -49,12 +52,14 @@ class MainMenuScreen extends StatefulWidget {
 }
 
 class _MainMenuScreenState extends State<MainMenuScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _clock;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    AudioService().playBGM();
     _clock = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 60),
@@ -62,7 +67,24 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
+    if (state == AppLifecycleState.paused) {
+      if (_clock.isAnimating) _clock.stop();
+      if (isCurrentRoute) {
+        AudioService().pauseBGM();
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      if (!_clock.isAnimating) _clock.repeat();
+      if (isCurrentRoute) {
+        AudioService().resumeBGM();
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _clock.dispose();
     super.dispose();
   }
@@ -70,6 +92,9 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   // ─── Navigation ───────────────────────────────────────────────────────────
 
   void _openGame() {
+    if (context.read<SettingsProvider>().vibrationEnabled) {
+      HapticService.mediumImpact();
+    }
     Navigator.of(context).push(
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
@@ -83,6 +108,9 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   }
 
   void _openSettings() {
+    if (context.read<SettingsProvider>().vibrationEnabled) {
+      HapticService.selectionClick();
+    }
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -92,6 +120,9 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   }
 
   void _openHangar() {
+    if (context.read<SettingsProvider>().vibrationEnabled) {
+      HapticService.selectionClick();
+    }
     Navigator.of(context).push(
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
@@ -111,7 +142,12 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     final equippedPlanet = context.select<GameStateProvider, FleetPlanet>(
       (g) => g.equippedPlanet,
     );
-    final settings = context.watch<SettingsProvider>();
+    final strings = context.select<SettingsProvider, AppStrings>(
+      (s) => s.strings,
+    );
+    final reducedMotion = context.select<SettingsProvider, bool>(
+      (s) => s.reducedMotion,
+    );
 
     return Scaffold(
       backgroundColor: kBackgroundColor,
@@ -124,27 +160,33 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
           // 1. Galaxy background with a slow, seamless drift.
           Positioned.fill(
-            child: AnimatedBuilder(
-              animation: _clock,
-              builder: (context, child) {
-                final drift = settings.reducedMotion ? 0.0 : sin(_clock.value * 2 * pi);
-                return Transform.scale(
-                  scale: 1.08 + 0.025 * drift,
-                  alignment: const Alignment(0.6, -0.4),
-                  child: child,
-                );
-              },
-              child: Image.asset(
-                'assets/images/menu_bg.jpg',
-                fit: BoxFit.cover,
+            child: RepaintBoundary(
+              child: AnimatedBuilder(
+                animation: _clock,
+                builder: (context, child) {
+                  final drift = reducedMotion ? 0.0 : sin(_clock.value * 2 * pi);
+                  return Transform.scale(
+                    scale: 1.08 + 0.025 * drift,
+                    alignment: const Alignment(0.6, -0.4),
+                    child: child,
+                  );
+                },
+                child: Image.asset(
+                  'assets/images/menu_bg.jpg',
+                  fit: BoxFit.cover,
+                  cacheWidth: 780,
+                  gaplessPlayback: true,
+                ),
               ),
             ),
           ),
 
           // 2. Twinkling stars.
           Positioned.fill(
-            child: IgnorePointer(
-              child: CustomPaint(painter: _TwinklePainter(_clock)),
+            child: RepaintBoundary(
+              child: IgnorePointer(
+                child: CustomPaint(painter: _TwinklePainter(_clock)),
+              ),
             ),
           ),
 
@@ -178,7 +220,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                   child: SizedBox(
                     width: kDesignWidth,
                     height: kDesignHeight,
-                    child: _buildFrame(equippedPlanet, settings),
+                    child: _buildFrame(equippedPlanet, strings),
                   ),
                 ),
               ),
@@ -201,7 +243,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                     // Ayarlar butonu (sol üst köşe)
                     _Pressable(
                       onTap: _openSettings,
-                      semanticLabel: settings.strings.settingsSemantic,
+                      semanticLabel: strings.settingsSemantic,
                       child: Container(
                         key: const Key('menu_settings_button'),
                         width: 40,
@@ -240,7 +282,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     );
   }
 
-  Widget _buildFrame(FleetPlanet equippedPlanet, SettingsProvider settings) {
+  Widget _buildFrame(FleetPlanet equippedPlanet, AppStrings strings) {
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -307,7 +349,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           top: 222,
           child: Center(
             child: Text(
-              settings.strings.menuTagline,
+              strings.menuTagline,
               style: GoogleFonts.inter(
                 color: kTextMuted,
                 fontSize: 9.5,
@@ -329,9 +371,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
         // ── Orbit ring + companion (animated) ─────────────────────────
         Positioned.fill(
-          child: IgnorePointer(
-            child: CustomPaint(
-              painter: _OrbitSystemPainter(_clock, planet: equippedPlanet),
+          child: RepaintBoundary(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _OrbitSystemPainter(_clock, planet: equippedPlanet),
+              ),
             ),
           ),
         ),
@@ -343,7 +387,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           top: 550,
           child: Center(
             child: Text(
-              '${equippedPlanet.name.toUpperCase()}  •  ${equippedPlanet.companionName.toUpperCase()} ${settings.strings.companion}',
+              '${equippedPlanet.name.toUpperCase()}  •  ${equippedPlanet.companionName.toUpperCase()} ${strings.companion}',
               style: GoogleFonts.inter(
                 color: kTextMuted,
                 fontSize: 10,
@@ -360,7 +404,9 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           top: 640 - 70,
           width: 140,
           height: 140,
-          child: _PlayButton(clock: _clock, onTap: _openGame, label: settings.strings.play),
+          child: RepaintBoundary(
+            child: _PlayButton(clock: _clock, onTap: _openGame, label: strings.play),
+          ),
         ),
 
         // ── Continue line (mesafe / seviye) ────────────────────────────────
@@ -373,8 +419,8 @@ class _MainMenuScreenState extends State<MainMenuScreen>
               selector: (_, g) => g.bestDistance,
               builder: (_, best, _) => Text(
                 best > 0
-                    ? settings.strings.journeyContinue(best)
-                    : settings.strings.journeyBegin,
+                    ? strings.journeyContinue(best)
+                    : strings.journeyBegin,
                 style: GoogleFonts.inter(
                   color: kTextMuted,
                   fontSize: 12,
@@ -393,7 +439,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           height: 48,
           child: _Pressable(
             onTap: _openHangar,
-            semanticLabel: settings.strings.hangarTitle,
+            semanticLabel: strings.hangarTitle,
             child: Container(
               key: const Key('menu_hangar_button'),
               decoration: BoxDecoration(
@@ -408,7 +454,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                   const SizedBox(width: 14),
                   Expanded(
                     child: Text(
-                      settings.strings.hangarTitle,
+                      strings.hangarTitle,
                       style: GoogleFonts.inter(
                         color: kTextColor,
                         fontSize: 13,
@@ -563,6 +609,9 @@ class _MenuPlanet extends StatelessWidget {
                 planet.assetPath,
                 fit: BoxFit.cover,
                 filterQuality: FilterQuality.medium,
+                cacheWidth: 512,
+                cacheHeight: 512,
+                gaplessPlayback: true,
               ),
             ),
             // Terminator shadow: lit from upper-left.
@@ -717,6 +766,10 @@ class _OrbitSystemPainter extends CustomPainter {
   final Paint _moonGlowPaint = Paint()
     ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 11);
   final Paint _moonPaint = Paint();
+  Shader? _cachedMoonShader;
+  Shader? _cachedTailShader;
+  FleetPlanet? _cachedPlanet;
+  static const Rect _unitOrbitRect = Rect.fromLTWH(-_kOrbitRadius, -_kOrbitRadius, _kOrbitRadius * 2, _kOrbitRadius * 2);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -740,24 +793,36 @@ class _OrbitSystemPainter extends CustomPainter {
       _nebulaGlowPaint,
     );
 
-    // Dynamic tail fading away from companion.
-    _tailPaint.shader = SweepGradient(
-      startAngle: 0,
-      endAngle: _tailSweep,
-      colors: [
-        planet.primaryColor.withValues(alpha: 0.9),
-        planet.primaryColor.withValues(alpha: 0.0),
-      ],
-      transform: GradientRotation(angle),
-    ).createShader(ringRect);
+    if (_cachedMoonShader == null || _cachedTailShader == null || _cachedPlanet != planet) {
+      _cachedPlanet = planet;
+      _cachedMoonShader = RadialGradient(
+        center: const Alignment(-0.4, -0.45),
+        radius: 1.1,
+        colors: [planet.companionColor, planet.glowColor],
+      ).createShader(const Rect.fromLTWH(-_kMoonRadius, -_kMoonRadius, _kMoonRadius * 2, _kMoonRadius * 2));
+      _cachedTailShader = SweepGradient(
+        startAngle: 0,
+        endAngle: _tailSweep,
+        colors: [
+          planet.primaryColor.withValues(alpha: 0.9),
+          planet.primaryColor.withValues(alpha: 0.0),
+        ],
+      ).createShader(_unitOrbitRect);
+    }
 
+    // Dynamic tail fading away from companion (rotated via canvas transform — zero shader compilation per frame).
+    canvas.save();
+    canvas.translate(_kPlanetCenter.dx, _kPlanetCenter.dy);
+    canvas.rotate(angle);
+    _tailPaint.shader = _cachedTailShader;
     canvas.drawArc(
-      ringRect,
-      angle,
+      _unitOrbitRect,
+      0,
       _tailSweep,
       false,
       _tailPaint,
     );
+    canvas.restore();
 
     // Dotted dust trail beyond the tail.
     for (int i = 0; i < 5; i++) {
@@ -778,17 +843,16 @@ class _OrbitSystemPainter extends CustomPainter {
       _kMoonRadius + 4,
       _moonGlowPaint,
     );
-    final moonRect = Rect.fromCircle(center: moon, radius: _kMoonRadius);
-    _moonPaint.shader = RadialGradient(
-      center: const Alignment(-0.4, -0.45),
-      radius: 1.1,
-      colors: [planet.companionColor, planet.glowColor],
-    ).createShader(moonRect);
+
+    canvas.save();
+    canvas.translate(moon.dx, moon.dy);
+    _moonPaint.shader = _cachedMoonShader;
     canvas.drawCircle(
-      moon,
+      Offset.zero,
       _kMoonRadius,
       _moonPaint,
     );
+    canvas.restore();
   }
 
   @override
@@ -808,6 +872,12 @@ class _TwinklePainter extends CustomPainter {
 
   final Paint _paint = Paint();
 
+  static final List<Color> _whiteAlphaLut = List.generate(
+    256,
+    (a) => Color((a << 24) | 0x00FFFFFF),
+    growable: false,
+  );
+
   static final List<_Star> _stars = List.generate(70, (i) {
     final r = Random(1000 + i);
     return _Star(
@@ -824,7 +894,8 @@ class _TwinklePainter extends CustomPainter {
     final v = clock.value;
     for (final s in _stars) {
       final tw = 0.5 + 0.5 * sin(v * 2 * pi * s.cycles + s.phase);
-      _paint.color = Colors.white.withValues(alpha: 0.08 + 0.55 * tw);
+      final aInt = ((0.08 + 0.55 * tw) * 255).toInt().clamp(0, 255);
+      _paint.color = _whiteAlphaLut[aInt];
       canvas.drawCircle(
         Offset(s.x * size.width, s.y * size.height),
         s.radius,

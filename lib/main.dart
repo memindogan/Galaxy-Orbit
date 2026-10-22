@@ -10,9 +10,13 @@ import 'package:provider/provider.dart';
 import 'providers/game_state_provider.dart';
 import 'providers/settings_provider.dart';
 import 'screens/main_menu_screen.dart';
+import 'services/audio_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Configure global audio context before any audio players are created
+  await AudioService.configureGlobalContext();
 
   // Lock to portrait + hide system overlays for immersive experience.
   SystemChrome.setPreferredOrientations([

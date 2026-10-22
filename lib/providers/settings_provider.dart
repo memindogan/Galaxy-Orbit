@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../l10n/app_strings.dart';
+import '../services/audio_service.dart';
 
 enum GraphicsQuality {
   high('High'),
@@ -20,7 +23,10 @@ class SettingsProvider extends ChangeNotifier {
   bool _reducedMotion = false;
   GraphicsQuality _graphicsQuality = GraphicsQuality.high;
   String _language = 'English';
+  AppStrings _cachedStrings = AppStrings('English');
   bool _isLoaded = false;
+  SharedPreferences? _prefs;
+  Timer? _saveDebounceTimer;
 
   SettingsProvider() {
     _loadSettings();
@@ -35,50 +41,62 @@ class SettingsProvider extends ChangeNotifier {
   GraphicsQuality get graphicsQuality => _graphicsQuality;
   String get language => _language;
   bool get isLoaded => _isLoaded;
-  AppStrings get strings => AppStrings(_language);
+  AppStrings get strings => _cachedStrings;
   bool get isTurkish => _language == 'Türkçe';
 
   // ─── Setters ──────────────────────────────────────────────────────────────
   set musicVolume(double v) {
-    _musicVolume = v.clamp(0.0, 1.0);
+    final clamped = v.clamp(0.0, 1.0);
+    if ((_musicVolume - clamped).abs() < 0.001) return;
+    _musicVolume = clamped;
+    AudioService().musicVolume = _musicVolume;
     notifyListeners();
-    _saveSettings();
+    _scheduleSave();
   }
 
   set sfxVolume(double v) {
-    _sfxVolume = v.clamp(0.0, 1.0);
+    final clamped = v.clamp(0.0, 1.0);
+    if ((_sfxVolume - clamped).abs() < 0.001) return;
+    _sfxVolume = clamped;
+    AudioService().sfxVolume = _sfxVolume;
     notifyListeners();
-    _saveSettings();
+    _scheduleSave();
   }
 
   set vibrationEnabled(bool v) {
+    if (_vibrationEnabled == v) return;
     _vibrationEnabled = v;
     notifyListeners();
-    _saveSettings();
+    _scheduleSave();
   }
 
   set colorBlindMode(bool v) {
+    if (_colorBlindMode == v) return;
     _colorBlindMode = v;
     notifyListeners();
-    _saveSettings();
+    _scheduleSave();
   }
 
   set reducedMotion(bool v) {
+    if (_reducedMotion == v) return;
     _reducedMotion = v;
     notifyListeners();
-    _saveSettings();
+    _scheduleSave();
   }
 
   set graphicsQuality(GraphicsQuality q) {
+    if (_graphicsQuality == q) return;
     _graphicsQuality = q;
     notifyListeners();
-    _saveSettings();
+    _scheduleSave();
   }
 
   set language(String lang) {
+    if (_language == lang) return;
     _language = lang;
+    _cachedStrings = AppStrings(_language);
     notifyListeners();
-    _saveSettings();
+    _scheduleSave();
   }
 
   // ─── Cycle Helpers ────────────────────────────────────────────────────────
@@ -101,8 +119,11 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> _loadSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      _prefs = prefs;
       _musicVolume = prefs.getDouble('setting_musicVolume') ?? 0.75;
       _sfxVolume = prefs.getDouble('setting_sfxVolume') ?? 0.90;
+      AudioService().musicVolume = _musicVolume;
+      AudioService().sfxVolume = _sfxVolume;
       _vibrationEnabled = prefs.getBool('setting_vibration') ?? true;
       _colorBlindMode = prefs.getBool('setting_colorBlind') ?? false;
       _reducedMotion = prefs.getBool('setting_reducedMotion') ?? false;
@@ -111,6 +132,7 @@ class SettingsProvider extends ChangeNotifier {
         _graphicsQuality = GraphicsQuality.values[qIndex];
       }
       _language = prefs.getString('setting_language') ?? 'English';
+      _cachedStrings = AppStrings(_language);
       _isLoaded = true;
       notifyListeners();
     } catch (_) {
@@ -118,16 +140,35 @@ class SettingsProvider extends ChangeNotifier {
     }
   }
 
+  void _scheduleSave() {
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = Timer(const Duration(milliseconds: 350), () {
+      _saveSettings();
+    });
+  }
+
   Future<void> _saveSettings() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setDouble('setting_musicVolume', _musicVolume);
-      await prefs.setDouble('setting_sfxVolume', _sfxVolume);
-      await prefs.setBool('setting_vibration', _vibrationEnabled);
-      await prefs.setBool('setting_colorBlind', _colorBlindMode);
-      await prefs.setBool('setting_reducedMotion', _reducedMotion);
-      await prefs.setInt('setting_graphicsQuality', _graphicsQuality.index);
-      await prefs.setString('setting_language', _language);
+      final prefs = _prefs ?? await SharedPreferences.getInstance();
+      _prefs = prefs;
+      await Future.wait([
+        prefs.setDouble('setting_musicVolume', _musicVolume),
+        prefs.setDouble('setting_sfxVolume', _sfxVolume),
+        prefs.setBool('setting_vibration', _vibrationEnabled),
+        prefs.setBool('setting_colorBlind', _colorBlindMode),
+        prefs.setBool('setting_reducedMotion', _reducedMotion),
+        prefs.setInt('setting_graphicsQuality', _graphicsQuality.index),
+        prefs.setString('setting_language', _language),
+      ]);
     } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    if (_saveDebounceTimer?.isActive ?? false) {
+      _saveDebounceTimer!.cancel();
+      _saveSettings();
+    }
+    super.dispose();
   }
 }

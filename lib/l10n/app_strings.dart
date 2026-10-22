@@ -50,6 +50,10 @@ class AppStrings {
       isTurkish ? 'En Yüksek Skor $score' : 'High Score $score';
   String get retry => isTurkish ? 'TEKRAR DENE' : 'RETRY';
   String get menu => isTurkish ? 'MENÜ' : 'MENU';
+  String reviveLabel(int remaining, int max) =>
+      isTurkish ? 'YÖRÜNGEYE DÖN ($remaining/$max)' : 'REVIVE ORBIT ($remaining/$max)';
+  String get reviveExhausted =>
+      isTurkish ? 'AF HAKKI DOLDU (0/3)' : 'NO REVIVES LEFT (0/3)';
   String stardustPill(int amount) => '+$amount Stardust';
   String walletPill(String amount) =>
       isTurkish ? 'Cüzdan $amount' : 'Wallet $amount';

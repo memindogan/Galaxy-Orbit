@@ -124,6 +124,216 @@ void main() {
       expect(engine.cameraY, lessThan(initialCameraY));
       expect(engine.cameraY, greaterThan(engine.targetCameraY));
     });
+
+    test('GameEngine prunes off-screen planets to maintain bounded memory', () {
+      final engine = GameEngine();
+      final manager = EndlessManager(screenWidth: 400, screenHeight: 800);
+      engine.init(manager, 400, 800);
+
+      // Simulate capturing 25 consecutive planets
+      for (int i = 0; i < 25; i++) {
+        final targetIndex = engine.currentPlanetIndex + 1;
+        final planet = engine.planets[targetIndex];
+        engine.player.x = planet.x;
+        engine.player.y = planet.y;
+        engine.player.isOrbiting = false;
+        engine.update(1 / 60);
+      }
+
+      // Planets list must stay bounded (at most ~8 planets in memory)
+      expect(engine.planets.length, lessThanOrEqualTo(10));
+      expect(engine.currentPlanetIndex, lessThanOrEqualTo(4));
+    });
+
+    test('Continuous Collision Detection catches fast-moving projectile that skips over planet in 1 tick', () {
+      final engine = GameEngine();
+      final manager = EndlessManager(screenWidth: 400, screenHeight: 800);
+      engine.init(manager, 400, 800);
+
+      // Target planet at index 1
+      final target = engine.planets[1];
+      
+      // Position player below target and moving upwards rapidly
+      engine.player.x = target.x;
+      engine.player.y = target.y + 80; // Below planet
+      engine.player.vx = 0;
+      engine.player.vy = -600; // Moving fast upwards
+      engine.player.isOrbiting = false;
+
+      // Update engine with a single large tick (0.3s) where displacement is 180px
+      // Without CCD, player jumps from y+80 to y-100 and misses the radius (which is ~40-60px)
+      engine.update(0.3);
+
+      // CCD should have detected segment intersection and attached to target planet
+      expect(engine.player.isOrbiting, isTrue);
+      expect(engine.currentPlanetIndex, equals(1));
+    });
+
+    test('EndlessManager generates planets strictly within horizontal screen margins', () {
+      final manager = EndlessManager(screenWidth: 360, screenHeight: 740);
+      manager.generateInitialPlanets();
+
+      for (int i = 0; i < 50; i++) {
+        final p = manager.generateNextPlanet();
+        final maxExtent = p.moveAxis == 0 && p.isMoving ? p.moveAmplitude : 0.0;
+        expect(p.x - p.radius - maxExtent, greaterThanOrEqualTo(10.0));
+        expect(p.x + p.radius + maxExtent, lessThanOrEqualTo(350.0));
+      }
+    });
+
+    test('Early levels (1-3) enforce gentle onboarding: centered corridor, slow speed, static planets', () {
+      final manager = EndlessManager(screenWidth: 400, screenHeight: 800);
+      final initial = manager.generateInitialPlanets();
+
+      // First planet is centered horizontally
+      expect(initial[0].x, closeTo(200.0, 0.01));
+
+      // Planets 1..6 (Level 1) stay within 36%-64% corridor (144..256) and have slow speed (<= 1.8 rad/s)
+      final p6 = manager.generateNextPlanet(); // 6th planet
+      final level1Planets = [...initial, p6];
+      for (final p in level1Planets) {
+        expect(p.x, greaterThanOrEqualTo(400 * 0.36 - 0.01));
+        expect(p.x, lessThanOrEqualTo(400 * 0.64 + 0.01));
+        expect(p.rotationSpeed.abs(), lessThanOrEqualTo(1.80));
+        expect(p.isMoving, isFalse);
+      }
+
+      // Planets 7..27 (Levels 2-5) also remain 100% static (no moving obstacles in first 5 levels)
+      Planet? lastLevel5Planet;
+      for (int i = 7; i <= 27; i++) {
+        final p = manager.generateNextPlanet();
+        expect(p.isMoving, isFalse);
+        expect(p.rotationSpeed.abs(), lessThanOrEqualTo(2.31));
+        lastLevel5Planet = p;
+      }
+
+      // Planet 28 (start of Level 6) continues smoothly from ~2.30 rad/s (no sudden jump to 2.5+)
+      final p28 = manager.generateNextPlanet();
+      expect(p28.rotationSpeed.abs(), closeTo(lastLevel5Planet!.rotationSpeed.abs(), 0.05));
+    });
+
+    test('Orbit Leap combo and Stardust economy rewards safe vs risk-taking play', () {
+      final engine = GameEngine();
+      final manager = EndlessManager(screenWidth: 400, screenHeight: 800);
+      engine.init(manager, 400, 800);
+
+      // 1. Safe capture (immediate next planet, index 1): +1 Stardust, +10 score, combo = 0
+      final p1 = engine.planets[1];
+      engine.player.x = p1.x;
+      engine.player.y = p1.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+
+      expect(engine.combo, equals(0));
+      expect(engine.score, equals(10));
+      expect(engine.runStarDust, equals(1));
+
+      // 2. Single Orbit Leap (skip 1 planet -> land on currentPlanetIndex + 2):
+      // combo = 1, +8 Stardust, +50 score
+      final leap1Target = engine.planets[engine.currentPlanetIndex + 2];
+      engine.player.x = leap1Target.x;
+      engine.player.y = leap1Target.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+
+      expect(engine.combo, equals(1));
+      expect(engine.lastSkippedCount, equals(1));
+      expect(engine.score, equals(10 + 50));
+      expect(engine.runStarDust, equals(1 + 8));
+
+      // 3. Second consecutive Single Orbit Leap:
+      // combo = 2, +15 Stardust, +100 score
+      final leap2Target = engine.planets[engine.currentPlanetIndex + 2];
+      engine.player.x = leap2Target.x;
+      engine.player.y = leap2Target.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+
+      expect(engine.combo, equals(2));
+      expect(engine.score, equals(60 + 100));
+      expect(engine.runStarDust, equals(9 + 15));
+
+      // 4. Safe capture after leaps resets combo to 0 and awards +1 Stardust
+      final safeTarget = engine.planets[engine.currentPlanetIndex + 1];
+      engine.player.x = safeTarget.x;
+      engine.player.y = safeTarget.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+
+      expect(engine.combo, equals(0));
+      expect(engine.runStarDust, equals(24 + 1));
+
+      // 5. Double Orbit Leap (skip 2 planets -> land on currentPlanetIndex + 3)
+      // Completes 5th capture of Level 1 (+15 level bonus):
+      // Double leap gives +25 Stardust, +150 score, plus +15 level bonus = +40 Stardust
+      final doubleLeapTarget = engine.planets[engine.currentPlanetIndex + 3];
+      engine.player.x = doubleLeapTarget.x;
+      engine.player.y = doubleLeapTarget.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+
+      expect(engine.combo, equals(1));
+      expect(engine.lastSkippedCount, equals(2));
+      expect(engine.currentLevel, equals(2));
+      expect(engine.runStarDust, equals(25 + 25 + 15));
+    });
+
+    test('Revive system enforces 3-use cap with 25 -> 60 -> 120 Stardust costs and restores orbit', () {
+      final engine = GameEngine();
+      final manager = EndlessManager(screenWidth: 400, screenHeight: 800);
+      engine.init(manager, 400, 800);
+
+      // Simulate missing a shot (game over)
+      engine.phase = GamePhase.gameOver;
+      engine.player.isOrbiting = false;
+      engine.combo = 2;
+
+      // 1st Revive: costs 25, 3 remaining before use
+      expect(engine.canRevive, isTrue);
+      expect(engine.remainingRevives, equals(3));
+      expect(engine.nextReviveCost, equals(25));
+      expect(engine.revivePlayer(), isTrue);
+      expect(engine.phase, equals(GamePhase.playing));
+      expect(engine.player.isOrbiting, isTrue);
+      expect(engine.combo, equals(0));
+      expect(engine.remainingRevives, equals(2));
+
+      // 2nd Revive: costs 60
+      engine.phase = GamePhase.gameOver;
+      expect(engine.canRevive, isTrue);
+      expect(engine.nextReviveCost, equals(60));
+      expect(engine.revivePlayer(), isTrue);
+      expect(engine.remainingRevives, equals(1));
+
+      // 3rd Revive: costs 120
+      engine.phase = GamePhase.gameOver;
+      expect(engine.canRevive, isTrue);
+      expect(engine.nextReviveCost, equals(120));
+      expect(engine.revivePlayer(), isTrue);
+      expect(engine.remainingRevives, equals(0));
+
+      // 4th attempt: blocked (max 3 per run)
+      engine.phase = GamePhase.gameOver;
+      expect(engine.canRevive, isFalse);
+      expect(engine.revivePlayer(), isFalse);
+    });
+
+    test('FleetCatalog prices and 12 unique planet assetPaths match progression curve', () {
+      expect(FleetCatalog.getById('terra').price, equals(0));
+      expect(FleetCatalog.getById('ember').price, equals(300));
+      expect(FleetCatalog.getById('aether').price, equals(600));
+      expect(FleetCatalog.getById('chronos').price, equals(1000));
+      expect(FleetCatalog.getById('nova').price, equals(1500));
+      expect(FleetCatalog.getById('titan').price, equals(2200));
+      expect(FleetCatalog.getById('gliese').price, equals(3000));
+      expect(FleetCatalog.getById('void').price, equals(9000));
+
+      final uniqueAssetPaths = FleetCatalog.worlds.map((w) => w.assetPath).toSet();
+      expect(uniqueAssetPaths.length, equals(12));
+      for (final world in FleetCatalog.worlds) {
+        expect(world.assetPath, equals('assets/images/planet_${world.id}.jpg'));
+      }
+    });
   });
 }
 

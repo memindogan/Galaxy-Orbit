@@ -16,9 +16,14 @@ import '../widgets/figma_icons.dart';
 import 'package:provider/provider.dart';
 
 String _formatNum(int n) {
-  final s = n.toString();
-  final reg = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
-  return s.replaceAllMapped(reg, (Match m) => '${m[1]},');
+  if (n >= 0 && n < 1000) return n.toString();
+  final s = n.abs().toString();
+  final buf = StringBuffer(n < 0 ? '-' : '');
+  for (int i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
+    buf.write(s[i]);
+  }
+  return buf.toString();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -33,6 +38,12 @@ class OrbitLostModal extends StatelessWidget {
   final int totalWalletStarDust;
   final VoidCallback onRetry;
   final VoidCallback onMenu;
+  final bool canRevive;
+  final bool canAffordRevive;
+  final int reviveCost;
+  final int remainingRevives;
+  final int maxRevives;
+  final VoidCallback? onRevive;
 
   const OrbitLostModal({
     super.key,
@@ -43,11 +54,19 @@ class OrbitLostModal extends StatelessWidget {
     required this.totalWalletStarDust,
     required this.onRetry,
     required this.onMenu,
+    this.canRevive = true,
+    this.canAffordRevive = false,
+    this.reviveCost = 25,
+    this.remainingRevives = 3,
+    this.maxRevives = 3,
+    this.onRevive,
   });
 
   @override
   Widget build(BuildContext context) {
-    final strings = context.watch<SettingsProvider>().strings;
+    final settings = context.watch<SettingsProvider>();
+    final strings = settings.strings;
+    final isLowQuality = settings.graphicsQuality == GraphicsQuality.low;
     return Material(
       type: MaterialType.transparency,
       child: DefaultTextStyle(
@@ -61,33 +80,48 @@ class OrbitLostModal extends StatelessWidget {
           child: Stack(
             children: [
               // ── Deep Space Darkening Veil (ensures contrast over bright planets) ──
-              Positioned.fill(
-                child: Container(
-                  color: const Color(0xFF030712).withValues(alpha: 0.55),
+              const Positioned.fill(
+                child: ColoredBox(
+                  color: Color(0x8C030712),
                 ),
               ),
 
               // ── Frosted Glass Backdrop (Icy Frost Blur) ─────────────────────
               Positioned.fill(
-                child: ClipRect(
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            const Color(0xFF0E223D).withValues(alpha: 0.50), // frosty cyan luminescence
-                            const Color(0xFF081324).withValues(alpha: 0.65), // deep translucent icy slate
-                            const Color(0xFF040711).withValues(alpha: 0.82), // deep space night
-                          ],
-                          stops: const [0.0, 0.45, 1.0],
+                child: isLowQuality
+                    ? Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Color(0xD90E223D),
+                              Color(0xE6081324),
+                              Color(0xF5040711),
+                            ],
+                            stops: [0.0, 0.45, 1.0],
+                          ),
+                        ),
+                      )
+                    : ClipRect(
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: Container(
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Color(0x800E223D), // frosty cyan luminescence
+                                  Color(0xA6081324), // deep translucent icy slate
+                                  Color(0xD1040711), // deep space night
+                                ],
+                                stops: [0.0, 0.45, 1.0],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
               ),
 
               // ── Frost Crystal Light Wash (Diagonal Sheen) ───────────────────
@@ -138,13 +172,13 @@ class OrbitLostModal extends StatelessWidget {
                   opacity: value,
                   child: Transform.scale(
                     scale: 0.94 + 0.06 * value,
-                    child: child,
+                    child: RepaintBoundary(child: child),
                   ),
                 );
               },
               child: Center(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 350),
                     child: Column(
@@ -152,7 +186,7 @@ class OrbitLostModal extends StatelessWidget {
                       children: [
                         // Top Glowing Purple Orbit Emblem
                         const _OrbitLostEmblem(),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 14),
 
                         // Level and status caption
                         Text(
@@ -164,7 +198,7 @@ class OrbitLostModal extends StatelessWidget {
                             letterSpacing: 2.0,
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 6),
 
                         // Main Title
                         Text(
@@ -176,7 +210,7 @@ class OrbitLostModal extends StatelessWidget {
                             letterSpacing: 3.0,
                           ),
                         ),
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 4),
 
                         // Subtitle / quote
                         Text(
@@ -188,12 +222,12 @@ class OrbitLostModal extends StatelessWidget {
                             fontWeight: FontWeight.w400,
                           ),
                         ),
-                        const SizedBox(height: 28),
+                        const SizedBox(height: 18),
 
                         // ── Glassmorphic Score Card (Frosted Ice Aesthetic) ─
                         Container(
                           width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
                           decoration: BoxDecoration(
                             color: const Color(0xFF0E1A2D).withValues(alpha: 0.65),
                             borderRadius: BorderRadius.circular(24),
@@ -225,17 +259,17 @@ class OrbitLostModal extends StatelessWidget {
                                   letterSpacing: 1.5,
                                 ),
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 6),
                               Text(
                                 _formatNum(score),
                                 style: GoogleFonts.orbitron(
                                   color: Colors.white,
-                                  fontSize: 38,
+                                  fontSize: 36,
                                   fontWeight: FontWeight.w700,
                                   letterSpacing: 1.0,
                                 ),
                               ),
-                              const SizedBox(height: 12),
+                              const SizedBox(height: 10),
                               Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -254,7 +288,7 @@ class OrbitLostModal extends StatelessWidget {
                             ],
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 16),
 
                         // ── Stardust Status Row ────────────────────────────
                         Padding(
@@ -288,9 +322,22 @@ class OrbitLostModal extends StatelessWidget {
                             ],
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 16),
 
                         // ── Action Buttons ─────────────────────────────────
+                        // REVIVE button (Stardust Second Chance)
+                        _ReviveActionButton(
+                          key: const Key('revive_button'),
+                          label: canRevive && remainingRevives > 0
+                              ? strings.reviveLabel(remainingRevives, maxRevives)
+                              : strings.reviveExhausted,
+                          cost: reviveCost,
+                          showCost: canRevive && remainingRevives > 0,
+                          enabled: canRevive && canAffordRevive && remainingRevives > 0 && onRevive != null,
+                          onTap: onRevive,
+                        ),
+                        const SizedBox(height: 10),
+
                         // RETRY button (Neon Cyan)
                         _ModalActionButton(
                           label: strings.retry,
@@ -298,7 +345,7 @@ class OrbitLostModal extends StatelessWidget {
                           isPrimary: true,
                           onTap: onRetry,
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
 
                         // MENU button (Dark Glass)
                         _ModalActionButton(
@@ -448,7 +495,9 @@ class LevelCompleteModal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final strings = context.watch<SettingsProvider>().strings;
+    final settings = context.watch<SettingsProvider>();
+    final strings = settings.strings;
+    final isLowQuality = settings.graphicsQuality == GraphicsQuality.low;
     final stageBonus = 100 + level * 20;
     final comboBonus = combo * 20;
     final stardustEarned = sectorStarDust > 0 ? sectorStarDust : (120 + level * 10);
@@ -467,33 +516,48 @@ class LevelCompleteModal extends StatelessWidget {
           child: Stack(
             children: [
               // ── Deep Space Darkening Veil (ensures contrast over bright planets) ──
-              Positioned.fill(
-                child: Container(
-                  color: const Color(0xFF030712).withValues(alpha: 0.55),
+              const Positioned.fill(
+                child: ColoredBox(
+                  color: Color(0x8C030712),
                 ),
               ),
 
               // ── Frosted Glass Backdrop (Icy Frost Blur) ─────────────────────
               Positioned.fill(
-                child: ClipRect(
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            const Color(0xFF0E2644).withValues(alpha: 0.50), // frosty cyan sheen
-                            const Color(0xFF081426).withValues(alpha: 0.65), // deep translucent icy slate
-                            const Color(0xFF040711).withValues(alpha: 0.82), // deep space night
-                          ],
-                          stops: const [0.0, 0.45, 1.0],
+                child: isLowQuality
+                    ? Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Color(0xD90E2644),
+                              Color(0xE6081426),
+                              Color(0xF5040711),
+                            ],
+                            stops: [0.0, 0.45, 1.0],
+                          ),
+                        ),
+                      )
+                    : ClipRect(
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: Container(
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Color(0x800E2644), // frosty cyan sheen
+                                  Color(0xA6081426), // deep translucent icy slate
+                                  Color(0xD1040711), // deep space night
+                                ],
+                                stops: [0.0, 0.45, 1.0],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
               ),
 
               // ── Frost Crystal Light Wash (Diagonal Sheen) ───────────────────
@@ -544,7 +608,7 @@ class LevelCompleteModal extends StatelessWidget {
                   opacity: value,
                   child: Transform.scale(
                     scale: 0.94 + 0.06 * value,
-                    child: child,
+                    child: RepaintBoundary(child: child),
                   ),
                 );
               },
@@ -922,6 +986,138 @@ class _ModalActionButton extends StatelessWidget {
                     ),
                   ],
                 ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReviveActionButton extends StatelessWidget {
+  final String label;
+  final int cost;
+  final bool showCost;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  const _ReviveActionButton({
+    super.key,
+    required this.label,
+    required this.cost,
+    required this.showCost,
+    required this.enabled,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const Color accentPurple = Color(0xFFAA93FF);
+    const Color accentGold = Color(0xFFFBBF24);
+
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.45,
+      child: SizedBox(
+        width: double.infinity,
+        height: 48,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: enabled ? onTap : null,
+            borderRadius: BorderRadius.circular(16),
+            child: Ink(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: enabled
+                      ? [
+                          const Color(0xFF2B1B54).withValues(alpha: 0.90),
+                          const Color(0xFF191233).withValues(alpha: 0.90),
+                        ]
+                      : [
+                          const Color(0xFF131B2E).withValues(alpha: 0.60),
+                          const Color(0xFF0E1525).withValues(alpha: 0.60),
+                        ],
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: enabled
+                      ? accentPurple.withValues(alpha: 0.65)
+                      : const Color(0xFF9BBDEA).withValues(alpha: 0.18),
+                  width: 1.2,
+                ),
+                boxShadow: enabled
+                    ? [
+                        BoxShadow(
+                          color: accentPurple.withValues(alpha: 0.28),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.shield_outlined,
+                            size: 16,
+                            color: enabled ? accentPurple : kTextMuted,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.orbitron(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (showCost) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: accentGold.withValues(alpha: 0.45),
+                            width: 1.0,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            FigmaIcon.stardust(size: 12, color: accentGold),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$cost',
+                              style: GoogleFonts.orbitron(
+                                color: accentGold,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
           ),

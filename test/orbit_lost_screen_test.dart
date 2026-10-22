@@ -117,4 +117,128 @@ void main() {
     // Game is still actively playing throughout
     expect(eng.phase, equals(GamePhase.playing));
   });
+
+  testWidgets('GameScreen successfully triggers OrbitLostModal across multiple sessions without stale callback crashes', (WidgetTester tester) async {
+    final gameState = GameStateProvider();
+    final settings = SettingsProvider();
+
+    // Session 1: Open GameScreen
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SettingsProvider>.value(value: settings),
+          ChangeNotifierProvider<GameStateProvider>.value(value: gameState),
+        ],
+        child: const MaterialApp(
+          home: GameScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Session 1: Dispose GameScreen (navigate away)
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SettingsProvider>.value(value: settings),
+          ChangeNotifierProvider<GameStateProvider>.value(value: gameState),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: Text('Menu')),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Session 2: Reopen GameScreen
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SettingsProvider>.value(value: settings),
+          ChangeNotifierProvider<GameStateProvider>.value(value: gameState),
+        ],
+        child: const MaterialApp(
+          home: GameScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Trigger Game Over in Session 2
+    final eng = gameState.engine;
+    eng.player.isOrbiting = false;
+    eng.player.vx = -1500.0;
+    eng.player.vy = 0.0;
+
+    for (int i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      if (eng.phase == GamePhase.gameOver) break;
+    }
+
+    expect(eng.phase, equals(GamePhase.gameOver));
+
+    // Pump modal entrance animation
+    for (int i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    // Modal must be visible and properly mounted in Session 2 without any crash
+    expect(find.byType(OrbitLostModal), findsOneWidget);
+    expect(find.text('ORBIT LOST'), findsOneWidget);
+  });
+
+  testWidgets('OrbitLostModal Revive button spends Stardust and resumes orbit', (WidgetTester tester) async {
+    final gameState = GameStateProvider();
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
+          ChangeNotifierProvider<GameStateProvider>.value(value: gameState),
+        ],
+        child: const MaterialApp(
+          home: GameScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final eng = gameState.engine;
+    // Give player 50 Stardust in current sector before missing
+    eng.sectorStarDust = 50;
+    eng.runStarDust = 50;
+    eng.player.isOrbiting = false;
+    eng.player.vx = -1500.0;
+    eng.player.vy = 0.0;
+
+    for (int i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      if (eng.phase == GamePhase.gameOver) break;
+    }
+
+    expect(eng.phase, equals(GamePhase.gameOver));
+    expect(gameState.totalStarDust, equals(50));
+    expect(gameState.canAffordRevive, isTrue);
+
+    for (int i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(find.text('REVIVE ORBIT (3/3)'), findsOneWidget);
+    expect(find.text('25'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('revive_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Player should be back in orbit with 25 Stardust deducted and 2 revives remaining
+    expect(eng.phase, equals(GamePhase.playing));
+    expect(eng.player.isOrbiting, isTrue);
+    expect(gameState.totalStarDust, equals(25));
+    expect(gameState.remainingRevives, equals(2));
+    expect(gameState.nextReviveCost, equals(60));
+  });
 }
