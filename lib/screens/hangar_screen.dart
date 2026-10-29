@@ -1,10 +1,22 @@
-/// Celestial Market / Hangar screen — Figma: "Hangar · Celestial market" frame (390×844).
+/// Celestial Market / Hangar screen — Crafted 1:1 against Figma design specifications.
 ///
 /// Features:
-///  1. Header with back button, Stardust wallet, category and "2 / 12 unlocked" tab.
-///  2. Hero Showcase Card: real-time revolving planet with companion vessel and orbit ring.
-///  3. Worlds & Companions list: 12 celestial worlds with equip/unlock states.
-///  4. Bottom Action Button: Unlock / Equip with live Stardust balance deduction.
+///  1. Top Bar: Circular back button at top-left, "CELESTIAL MARKET" title centered, Stardust wallet pill at top-right.
+///  2. Hero Showcase Card (342x340):
+///     - Sci-Fi corner brackets (top-right ┐ & bottom-left └)
+///     - "FEATURED WORLD / 09" micro-badge with cyan glow dot
+///     - Real-time high-fidelity selected planet imagery with spherical terminator shading and atmospheric glow
+///     - Inclined elliptical neon orbit ring with revolving companion vessel and ion thruster flame
+///     - Dynamic telemetry tag (e.g. "CORONA ACTIVITY +98.6%"), world name, category pill, and companion info
+///  3. Worlds & Companions header with fleet unlocked badge ("4 / 12 UNLOCKED")
+///  4. Horizontal planet catalog carousel (12 celestial worlds with live statuses):
+///     - EQUIPPED (cyan badge)
+///     - OWNED / Equip (interactive equip action)
+///     - SELECTED (1.5px glowing cyan active border)
+///     - LOCKED (top-right lock badge + golden Stardust price)
+///  5. Carousel indicator pills (active 22x3 cyan pill, inactive 5x3 pills)
+///  6. Bundle info card ("Unlock a world. Bring its companion.")
+///  7. High-glow Bottom Action CTA Button (Unlock with Stardust / Equip Fleet / Equipped Fleet)
 library;
 
 import 'dart:math';
@@ -13,14 +25,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
-import '../constants/theme_constants.dart';
 import '../l10n/app_strings.dart';
 import '../models/fleet_planet.dart';
 import '../providers/game_state_provider.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/figma_icons.dart';
 import '../services/haptic_service.dart';
-import 'main_menu_screen.dart';
 
 class HangarScreen extends StatefulWidget {
   const HangarScreen({super.key});
@@ -33,6 +43,7 @@ class _HangarScreenState extends State<HangarScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _clock;
   late String _selectedPlanetId;
+  final ScrollController _carouselController = ScrollController();
 
   @override
   void initState() {
@@ -43,7 +54,6 @@ class _HangarScreenState extends State<HangarScreen>
       duration: const Duration(seconds: 30),
     )..repeat();
 
-    // Default inspected planet is the currently equipped planet
     final gameState = context.read<GameStateProvider>();
     _selectedPlanetId = gameState.equippedPlanetId;
   }
@@ -61,6 +71,7 @@ class _HangarScreenState extends State<HangarScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _clock.dispose();
+    _carouselController.dispose();
     super.dispose();
   }
 
@@ -92,14 +103,14 @@ class _HangarScreenState extends State<HangarScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           behavior: SnackBarBehavior.floating,
-          backgroundColor: kSurfaceColor,
+          backgroundColor: const Color(0xFF101B2C),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: kAccentColor.withValues(alpha: 0.3)),
+            side: const BorderSide(color: Color(0xFF8CEFFF), width: 1.0),
           ),
           content: Text(
             settings.strings.equippedSnackbar(planet.name, planet.companionName),
-            style: GoogleFonts.inter(color: kTextColor, fontSize: 13),
+            style: GoogleFonts.inter(color: const Color(0xFFF0F7FF), fontSize: 13),
           ),
         ),
       );
@@ -122,7 +133,7 @@ class _HangarScreenState extends State<HangarScreen>
           ),
           content: Text(
             settings.strings.needMoreDustSnackbar(planet.name, needed),
-            style: GoogleFonts.inter(color: kTextColor, fontSize: 13),
+            style: GoogleFonts.inter(color: const Color(0xFFF0F7FF), fontSize: 13),
           ),
         ),
       );
@@ -137,17 +148,17 @@ class _HangarScreenState extends State<HangarScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           behavior: SnackBarBehavior.floating,
-          backgroundColor: kSurfaceColor,
+          backgroundColor: const Color(0xFF101B2C),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: const BorderSide(color: kAccentColor, width: 1.5),
+            side: const BorderSide(color: Color(0xFF8CEFFF), width: 1.5),
           ),
           content: Text(
             settings.strings.unlockedSnackbar(planet.name, planet.companionName),
             style: GoogleFonts.orbitron(
-              color: kAccentColor,
+              color: const Color(0xFF8CEFFF),
               fontSize: 13,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
@@ -164,22 +175,26 @@ class _HangarScreenState extends State<HangarScreen>
     final isEquipped = gameState.isEquipped(selectedPlanet.id);
     final unlockedCount = gameState.unlockedPlanetIds.length;
     final totalDust = gameState.totalStarDust;
+    final selectedIndex = FleetCatalog.worlds.indexWhere((w) => w.id == selectedPlanet.id);
 
     return Scaffold(
-      backgroundColor: kBackgroundColor,
+      backgroundColor: const Color(0xFF050814),
       body: Stack(
         children: [
-          // 1. Galaxy space background (bounded decode cache + gapless playback)
+          // 1. Galaxy Background
           Positioned.fill(
-            child: Image.asset(
-              'assets/images/menu_bg.jpg',
-              fit: BoxFit.cover,
-              cacheWidth: 780,
-              gaplessPlayback: true,
+            child: Opacity(
+              opacity: 0.45,
+              child: Image.asset(
+                'assets/images/menu_bg.jpg',
+                fit: BoxFit.cover,
+                cacheWidth: 780,
+                gaplessPlayback: true,
+              ),
             ),
           ),
 
-          // 2. Darkening overlay for readibility
+          // 2. Subtle Darkening Gradient
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -187,466 +202,528 @@ class _HangarScreenState extends State<HangarScreen>
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    kBackgroundColor.withValues(alpha: 0.70),
-                    kBackgroundColor.withValues(alpha: 0.85),
-                    kBackgroundColor.withValues(alpha: 0.96),
+                    const Color(0xFF050814).withValues(alpha: 0.35),
+                    const Color(0xFF050814).withValues(alpha: 0.70),
+                    const Color(0xFF050814).withValues(alpha: 0.95),
                   ],
-                  stops: const [0.0, 0.45, 1.0],
+                  stops: const [0.0, 0.5, 1.0],
                 ),
               ),
             ),
           ),
 
-          // 3. Main content
+          // 3. Responsive Edge-to-Edge UI
           SafeArea(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Top header bar (back button + wallet)
+                // ── Top Bar: Back Button, Centered Title, Wallet Pill ──
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // Back button
+                      // Back Button on far left
                       GestureDetector(
                         key: const Key('hangar_back_button'),
                         onTap: () => Navigator.of(context).pop(),
                         behavior: HitTestBehavior.opaque,
                         child: Container(
-                          width: 42,
-                          height: 42,
+                          width: 40,
+                          height: 40,
                           alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: kChipSurface.withValues(alpha: 0.10),
-                            border: Border.all(
-                              color: kBorderSoft.withValues(alpha: 0.20),
-                              width: 1.2,
-                            ),
-                          ),
-                          child: FigmaIcon.arrowBack(size: 20),
-                        ),
-                      ),
-
-                      // Stardust wallet pill
-                      _MarketWalletPill(amount: totalDust),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-
-                // Title section
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        settings.strings.celestialMarket,
-                        style: GoogleFonts.inter(
-                          color: kAccentColor,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 2.2,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        settings.strings.yourCosmicFleet,
-                        style: GoogleFonts.orbitron(
-                          color: kTextColor,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Tabs & unlocked count
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                settings.strings.worldsAndCompanions,
-                                style: GoogleFonts.inter(
-                                  color: kAccentColor,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                          decoration: ShapeDecoration(
+                            color: const Color(0xD90C1626),
+                            shape: RoundedRectangleBorder(
+                              side: const BorderSide(
+                                width: 1,
+                                color: Color(0x268CEFFF),
                               ),
-                              const SizedBox(height: 4),
-                              Container(
-                                width: 80,
-                                height: 2,
-                                decoration: BoxDecoration(
-                                  color: kAccentColor,
-                                  borderRadius: BorderRadius.circular(1),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: kAccentColor.withValues(alpha: 0.6),
-                                      blurRadius: 6,
-                                    ),
-                                  ],
-                                ),
+                              borderRadius: BorderRadius.circular(100),
+                            ),
+                            shadows: const [
+                              BoxShadow(
+                                color: Color(0x30000000),
+                                blurRadius: 8,
                               ),
                             ],
                           ),
-                          Text(
-                            settings.strings.unlockedWorlds(unlockedCount, FleetCatalog.worlds.length),
-                            style: GoogleFonts.inter(
-                              color: kTextMuted,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                          child: FigmaIcon.arrowBack(size: 19, color: const Color(0xFFF0F7FF)),
+                        ),
+                      ),
+
+                      // Title in the center
+                      Text(
+                        'CELESTIAL MARKET',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.orbitron(
+                          color: const Color(0xFFF0F7FF),
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+
+                      // Stardust Wallet Pill on far right
+                      Container(
+                        height: 40,
+                        padding: const EdgeInsets.symmetric(horizontal: 13),
+                        decoration: ShapeDecoration(
+                          color: const Color(0xFF101B2C),
+                          shape: RoundedRectangleBorder(
+                            side: const BorderSide(
+                              width: 1,
+                              color: Color(0x268CEFFF),
                             ),
+                            borderRadius: BorderRadius.circular(100),
                           ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Scrollable middle section: Hero card + Worlds list (Virtualized ListView.builder)
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.only(left: 20, right: 20, bottom: 80),
-                    itemCount: FleetCatalog.worlds.length + 1,
-                    itemBuilder: (context, index) {
-                      if (index == 0) {
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 20),
-                          child: _HeroShowcaseCard(
-                            planet: selectedPlanet,
-                            clock: _clock,
-                            isUnlocked: isUnlocked,
-                            isEquipped: isEquipped,
-                          ),
-                        );
-                      }
-
-                      final world = FleetCatalog.worlds[index - 1];
-                      final isItemUnlocked = gameState.isUnlocked(world.id);
-                      final isItemEquipped = gameState.isEquipped(world.id);
-                      final isItemSelected = world.id == _selectedPlanetId;
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _WorldListCard(
-                          key: ValueKey(world.id),
-                          planet: world,
-                          isUnlocked: isItemUnlocked,
-                          isEquipped: isItemEquipped,
-                          isSelected: isItemSelected,
-                          strings: settings.strings,
-                          onTap: () => _onSelectPlanet(world.id),
-                          onEquip: () {
-                            gameState.equipPlanet(world.id);
-                            setState(() => _selectedPlanetId = world.id);
-                          },
+                          shadows: const [
+                            BoxShadow(
+                              color: Color(0x30000000),
+                              blurRadius: 8,
+                            ),
+                          ],
                         ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // 4. Bottom floating action bar
-          Positioned(
-            left: 20,
-            right: 20,
-            bottom: 16,
-            child: SafeArea(
-              top: false,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _MarketActionButton(
-                    planet: selectedPlanet,
-                    isUnlocked: isUnlocked,
-                    isEquipped: isEquipped,
-                    currentDust: totalDust,
-                    strings: settings.strings,
-                    onPressed: _onActionButtonPressed,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    isEquipped
-                        ? settings.strings.activeWorldNote
-                        : isUnlocked
-                            ? settings.strings.readyToDeployNote
-                            : settings.strings.afterUnlockNote(max(0, totalDust - selectedPlanet.price)),
-                    style: GoogleFonts.inter(
-                      color: kTextMuted.withValues(alpha: 0.8),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Sub-components
-// ═════════════════════════════════════════════════════════════════════════════
-
-class _MarketWalletPill extends StatelessWidget {
-  final int amount;
-  const _MarketWalletPill({required this.amount});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 34,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: kPillSurface.withValues(alpha: 0.65),
-        borderRadius: BorderRadius.circular(17),
-        border: Border.all(color: kBorderSoft.withValues(alpha: 0.20), width: 1.2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 10,
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          FigmaIcon.stardust(size: 15),
-          const SizedBox(width: 8),
-          Text(
-            formatThousands(amount),
-            style: GoogleFonts.inter(
-              color: kTextColor,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The big showcase card displaying the rotating planet & orbiting companion.
-class _HeroShowcaseCard extends StatelessWidget {
-  final FleetPlanet planet;
-  final Animation<double> clock;
-  final bool isUnlocked;
-  final bool isEquipped;
-
-  const _HeroShowcaseCard({
-    required this.planet,
-    required this.clock,
-    required this.isUnlocked,
-    required this.isEquipped,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 290,
-      decoration: BoxDecoration(
-        color: kSurfaceColor.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: planet.primaryColor.withValues(alpha: 0.30),
-          width: 1.4,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: planet.glowColor.withValues(alpha: 0.15),
-            blurRadius: 28,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          // Background subtle stars/glow
-          Positioned.fill(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(24),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: Alignment.center,
-                    radius: 0.9,
-                    colors: [
-                      planet.glowColor.withValues(alpha: 0.12),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // Bundle Tag (Top Left)
-          Positioned(
-            top: 16,
-            left: 16,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: planet.primaryColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: planet.primaryColor.withValues(alpha: 0.35),
-                  width: 1,
-                ),
-              ),
-              child: Text(
-                planet.bundleTag,
-                style: GoogleFonts.inter(
-                  color: planet.primaryColor,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.0,
-                ),
-              ),
-            ),
-          ),
-
-          // Status Badge (Top Right)
-          if (isEquipped)
-            Positioned(
-              top: 16,
-              right: 16,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: const Color(0xFF10B981).withValues(alpha: 0.4),
-                  ),
-                ),
-                child: Text(
-                  'EQUIPPED',
-                  style: GoogleFonts.inter(
-                    color: const Color(0xFF34D399),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.0,
-                  ),
-                ),
-              ),
-            ),
-
-          // Center Planet & Orbiting Vessel
-          Positioned.fill(
-            child: Center(
-              child: SizedBox(
-                width: 220,
-                height: 220,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // Revolving orbit line and companion vessel
-                    RepaintBoundary(
-                      child: CustomPaint(
-                        size: const Size(220, 220),
-                        painter: _ShowcaseOrbitPainter(
-                          clock: clock,
-                          planet: planet,
-                        ),
-                      ),
-                    ),
-
-                    // Planet Sphere
-                    Container(
-                      width: 110,
-                      height: 110,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: planet.glowColor.withValues(alpha: 0.45),
-                            blurRadius: 24,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                      child: ClipOval(
-                        child: Stack(
-                          fit: StackFit.expand,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Transform.scale(
-                              scale: 1024 / 888,
-                              child: Image.asset(
-                                planet.assetPath,
-                                fit: BoxFit.cover,
-                                cacheWidth: 256,
-                                cacheHeight: 256,
-                                gaplessPlayback: true,
+                            Container(
+                              decoration: const BoxDecoration(
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Color(0x80FFD166),
+                                    blurRadius: 10,
+                                  ),
+                                ],
                               ),
+                              child: FigmaIcon.stardust(size: 15),
                             ),
-                            // Shading
-                            const DecoratedBox(
-                              decoration: BoxDecoration(
-                                gradient: RadialGradient(
-                                  center: Alignment(-0.4, -0.4),
-                                  radius: 1.2,
-                                  colors: [
-                                    Colors.transparent,
-                                    Colors.transparent,
-                                    Color(0x99000000),
-                                  ],
-                                  stops: [0.0, 0.55, 1.0],
-                                ),
+                            const SizedBox(width: 8),
+                            Text(
+                              _formatThousands(totalDust),
+                              style: GoogleFonts.orbitron(
+                                color: const Color(0xFFF0F7FF),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ],
                         ),
                       ),
+                    ],
+                  ),
+                ),
+
+                // ── Centered Main Content ──
+                Expanded(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 390),
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            // 1. Featured World Card (Real Planet Image + Companion Orbit)
+                            _FeaturedWorldCard(
+                              planet: selectedPlanet,
+                              index: selectedIndex >= 0 ? selectedIndex + 1 : 1,
+                              clock: _clock,
+                            ),
+                            const SizedBox(height: 16),
+
+                            // 2. Section Header: Worlds & Companions / Fleet unlocked pill
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        settings.strings.worldsAndCompanions,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.inter(
+                                          color: const Color(0xFFF0F7FF),
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        settings.strings.yourCosmicFleet,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.inter(
+                                          color: const Color(0xFF7F91AB),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF101B2C),
+                                    borderRadius: BorderRadius.circular(100),
+                                    border: Border.all(
+                                      color: const Color(0x268CEFFF),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '$unlockedCount / ${FleetCatalog.worlds.length} UNLOCKED',
+                                    style: GoogleFonts.orbitron(
+                                      color: const Color(0xFF8CEFFF),
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+
+                            // 3. Carousel of Planet Cards (12 items)
+                            SizedBox(
+                              height: 130,
+                              child: ListView.separated(
+                                controller: _carouselController,
+                                scrollDirection: Axis.horizontal,
+                                itemCount: FleetCatalog.worlds.length,
+                                separatorBuilder: (_, _) => const SizedBox(width: 8),
+                                itemBuilder: (context, index) {
+                                  final world = FleetCatalog.worlds[index];
+                                  final isItemUnlocked = gameState.isUnlocked(world.id);
+                                  final isItemEquipped = gameState.isEquipped(world.id);
+                                  final isItemSelected = world.id == _selectedPlanetId;
+
+                                  return _PlanetCatalogCard(
+                                    world: world,
+                                    isUnlocked: isItemUnlocked,
+                                    isEquipped: isItemEquipped,
+                                    isSelected: isItemSelected,
+                                    strings: settings.strings,
+                                    onTap: () => _onSelectPlanet(world.id),
+                                    onEquip: () {
+                                      gameState.equipPlanet(world.id);
+                                      setState(() => _selectedPlanetId = world.id);
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+
+                            // 4. Carousel Indicator Dots
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: List.generate(4, (i) {
+                                final isActive = (selectedIndex ~/ 3) == i;
+                                return AnimatedContainer(
+                                  duration: const Duration(milliseconds: 250),
+                                  margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                                  width: isActive ? 22 : 5,
+                                  height: 3,
+                                  decoration: ShapeDecoration(
+                                    color: isActive
+                                        ? const Color(0xFF8CEFFF)
+                                        : const Color(0xFF24364E),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ),
+                            const SizedBox(height: 12),
+
+                            // 5. Active Fleet Bundle Capsule
+                            _BundleInfoCapsule(
+                              planet: selectedPlanet,
+                              isUnlocked: isUnlocked,
+                              strings: settings.strings,
+                            ),
+                            const SizedBox(height: 16),
+
+                            // 6. Primary Action CTA Button (Unlock / Equip / Equipped)
+                            _ActionButton(
+                              planet: selectedPlanet,
+                              isUnlocked: isUnlocked,
+                              isEquipped: isEquipped,
+                              totalDust: totalDust,
+                              strings: settings.strings,
+                              onPressed: _onActionButtonPressed,
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                        ),
+                      ),
                     ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Sub-components: Featured World Card & 3D Celestial Showcase
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _FeaturedWorldCard extends StatelessWidget {
+  final FleetPlanet planet;
+  final int index;
+  final Animation<double> clock;
+
+  const _FeaturedWorldCard({
+    required this.planet,
+    required this.index,
+    required this.clock,
+  });
+
+  String _telemetryTag(FleetPlanet p) {
+    return switch (p.id) {
+      'nova' => 'CORONA ACTIVITY +98.6%',
+      'ember' => 'SURFACE TEMP 840 K',
+      'aether' => 'ION FLUX 14.2 keV',
+      'chronos' => 'GRAVITATIONAL DILATION 3.4x',
+      'titan' => 'ATMOSPHERIC PRESSURE 1.5 ATM',
+      'solaris' => 'SOLAR RADIATION 12.8 kW/m²',
+      'gliese' => 'TIDALLY LOCKED • STABLE',
+      'nebula9' => 'PLASMA IONIZATION 87%',
+      _ => 'BIOSPHERE STABILITY 99.8%',
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 342,
+      height: 340,
+      clipBehavior: Clip.antiAlias,
+      decoration: ShapeDecoration(
+        color: const Color(0xD90C1626),
+        shape: RoundedRectangleBorder(
+          side: const BorderSide(
+            width: 1,
+            color: Color(0x268CEFFF),
+          ),
+          borderRadius: BorderRadius.circular(20),
+        ),
+      ),
+      child: Stack(
+        children: [
+          // 1. Deep Space Backdrop Image
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.35,
+              child: Image.asset(
+                'assets/images/menu_bg.jpg',
+                fit: BoxFit.cover,
+                cacheWidth: 684,
+                gaplessPlayback: true,
+              ),
+            ),
+          ),
+
+          // 2. REAL Planet Body (ClipOval with authentic spherical lighting & glowing atmosphere)
+          Positioned(
+            left: (342 - 150) / 2,
+            top: 40,
+            width: 150,
+            height: 150,
+            child: _FeaturedPlanetBody(planet: planet),
+          ),
+
+          // 3. Inclined Orbit Ring + Revolving Companion Vessel
+          Positioned(
+            left: 0,
+            top: 20,
+            width: 342,
+            height: 190,
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: _HangarOrbitPainter(clock, planet: planet),
+              ),
+            ),
+          ),
+
+          // 4. Bottom Gradient Fade for Typography Readability
+          Positioned(
+            left: 0,
+            top: 170,
+            width: 342,
+            height: 170,
+            child: const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0x00050814),
+                    Color(0xF5050814),
                   ],
                 ),
               ),
             ),
           ),
 
-          // Bottom Planet Info (Name + Description)
+          // 5. Sci-Fi Corner Bracket: Top Right (┐)
           Positioned(
-            left: 0,
-            right: 0,
-            bottom: 16,
-            child: Column(
+            right: 16,
+            top: 16,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  planet.name.toUpperCase(),
-                  style: GoogleFonts.orbitron(
-                    color: kTextColor,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 3.5,
+                Container(width: 16, height: 1, color: const Color(0x808CEFFF)),
+                Container(width: 1, height: 10, color: const Color(0x808CEFFF)),
+              ],
+            ),
+          ),
+
+          // 6. Sci-Fi Corner Bracket: Bottom Left (└)
+          Positioned(
+            left: 16,
+            bottom: 16,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(width: 1, height: 8, color: const Color(0x508CEFFF)),
+                Container(width: 12, height: 1, color: const Color(0x508CEFFF)),
+              ],
+            ),
+          ),
+
+          // 7. Top Left Micro-Badge: "FEATURED WORLD / 09"
+          Positioned(
+            left: 16,
+            top: 16,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 4,
+                  height: 4,
+                  decoration: ShapeDecoration(
+                    color: const Color(0xFF8CEFFF),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(2)),
+                    shadows: const [
+                      BoxShadow(
+                        color: Color(0x558CEFFF),
+                        blurRadius: 10,
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(width: 6),
                 Text(
-                  planet.heroSubtitle,
+                  'FEATURED WORLD / ${index.toString().padLeft(2, '0')}',
                   style: GoogleFonts.inter(
-                    color: kTextMuted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                    color: const Color(0xFFB8D9ED),
+                    fontSize: 8,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.8,
                   ),
+                ),
+              ],
+            ),
+          ),
+
+          // 8. Telemetry Tag
+          Positioned(
+            left: 18,
+            top: 234,
+            child: Text(
+              _telemetryTag(planet),
+              style: GoogleFonts.inter(
+                color: planet.glowColor,
+                fontSize: 7.5,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.8,
+              ),
+            ),
+          ),
+
+          // 9. Planet Name & Category Badge & Companion Info
+          Positioned(
+            left: 18,
+            top: 250,
+            right: 18,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      planet.name.toUpperCase(),
+                      style: GoogleFonts.orbitron(
+                        color: const Color(0xFFF0F7FF),
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: ShapeDecoration(
+                        color: planet.glowColor.withValues(alpha: 0.12),
+                        shape: RoundedRectangleBorder(
+                          side: BorderSide(
+                            width: 1,
+                            color: planet.glowColor.withValues(alpha: 0.35),
+                          ),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                      ),
+                      child: Text(
+                        planet.category,
+                        style: GoogleFonts.inter(
+                          color: planet.glowColor,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    FigmaIcon.orbit(size: 13, color: const Color(0xFFB8D9ED)),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        'Companion: ${planet.companionName} (${planet.companionType})',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          color: const Color(0xFFB8D9ED),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -657,100 +734,141 @@ class _HeroShowcaseCard extends StatelessWidget {
   }
 }
 
-/// Custom painter for the showcase orbit ring and companion vessel.
-class _ShowcaseOrbitPainter extends CustomPainter {
+/// Featured Planet Body showing the REAL selected planet image
+class _FeaturedPlanetBody extends StatelessWidget {
+  final FleetPlanet planet;
+
+  const _FeaturedPlanetBody({required this.planet});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: planet.glowColor.withValues(alpha: 0.50),
+            blurRadius: 36,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.asset(
+              planet.assetPath,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.medium,
+              cacheWidth: 512,
+              cacheHeight: 512,
+              gaplessPlayback: true,
+            ),
+            // Spherical terminator lighting shading: lit from upper-left
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment(-0.4, -0.45),
+                  radius: 1.25,
+                  colors: [
+                    Colors.transparent,
+                    Colors.transparent,
+                    Color(0x99000000),
+                  ],
+                  stops: [0.0, 0.45, 1.0],
+                ),
+              ),
+            ),
+            // Atmospheric glowing rim
+            DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: planet.primaryColor.withValues(alpha: 0.45),
+                  width: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// CustomPainter: Inclined Orbit Ring & Companion Vessel
+class _HangarOrbitPainter extends CustomPainter {
   final Animation<double> clock;
   final FleetPlanet planet;
 
-  _ShowcaseOrbitPainter({required this.clock, required this.planet})
-      : super(repaint: clock);
-
-  final Paint _orbitPaint = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 1.0;
-  final Paint _trailPaint = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 2.0
-    ..strokeCap = StrokeCap.round;
-  final Paint _glowPaint = Paint()
-    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-  final Paint _bodyPaint = Paint()..color = kTextColor;
-  final Paint _wingPaint = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 1.5;
-  Shader? _cachedTrailShader;
-  FleetPlanet? _cachedPlanet;
-  static const Rect _unitTrailRect = Rect.fromLTWH(-86.0, -86.0, 172.0, 172.0);
-  static const Rect _vesselBodyRect = Rect.fromLTWH(-4.0, -6.0, 8.0, 12.0);
+  _HangarOrbitPainter(this.clock, {required this.planet}) : super(repaint: clock);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero);
-    const radius = 86.0;
-
-    // Draw orbit path circle
-    _orbitPaint.color = planet.primaryColor.withValues(alpha: 0.35);
-    canvas.drawCircle(center, radius, _orbitPaint);
-
-    // Compute companion position
-    final angle = clock.value * 2 * pi;
-    final vesselPos = center + Offset(cos(angle), sin(angle)) * radius;
-
-    // Cached plasma thruster trail shader rotated via canvas transform (zero per-frame compilation)
-    if (_cachedTrailShader == null || _cachedPlanet != planet) {
-      _cachedPlanet = planet;
-      _cachedTrailShader = SweepGradient(
-        startAngle: 0,
-        endAngle: 0.7,
-        colors: [
-          Colors.transparent,
-          planet.primaryColor.withValues(alpha: 0.8),
-        ],
-      ).createShader(_unitTrailRect);
-    }
+    final center = Offset(size.width * 0.5, size.height * 0.58);
+    final t = clock.value * 2 * pi;
 
     canvas.save();
     canvas.translate(center.dx, center.dy);
-    canvas.rotate(angle - 0.7);
-    _trailPaint.shader = _cachedTrailShader;
-    canvas.drawArc(
-      _unitTrailRect,
-      0,
-      0.7,
-      false,
-      _trailPaint,
+    canvas.rotate(-0.30); // ~17 deg inclination
+
+    final orbitA = 120.0;
+    final orbitB = 42.0;
+    final orbitRect = Rect.fromCenter(center: Offset.zero, width: orbitA * 2, height: orbitB * 2);
+
+    // Neon Orbit Ring
+    final ringPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = const Color(0xFF8CEFFF).withValues(alpha: 0.55);
+    canvas.drawOval(orbitRect, ringPaint);
+
+    // Faint outer ring aura
+    final auraPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.6
+      ..color = const Color(0xFF8CEFFF).withValues(alpha: 0.25);
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset.zero, width: (orbitA + 6) * 2, height: (orbitB + 3) * 2),
+      auraPaint,
     );
-    canvas.restore();
 
-    // Draw companion vessel
-    canvas.save();
-    canvas.translate(vesselPos.dx, vesselPos.dy);
-    canvas.rotate(angle + pi / 2); // face tangential to orbit
+    // Revolving companion vessel
+    final shipAngle = t * 1.5;
+    final shipX = orbitA * cos(shipAngle);
+    final shipY = orbitB * sin(shipAngle);
 
-    // Vessel glow
-    _glowPaint.color = planet.companionColor.withValues(alpha: 0.5);
-    canvas.drawCircle(Offset.zero, 8, _glowPaint);
+    // Ion Thruster Flame Glow behind vessel
+    final flamePaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          const Color(0xFF8CEFFF),
+          const Color(0xFF38BDF8).withValues(alpha: 0.35),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.45, 1.0],
+      ).createShader(Rect.fromCircle(center: Offset(shipX + 7, shipY - 3), radius: 12));
+    canvas.drawCircle(Offset(shipX + 7, shipY - 3), 12, flamePaint);
 
-    // Vessel body (sleek satellite probe shape)
-    canvas.drawRect(_vesselBodyRect, _bodyPaint);
-    // Solar wings
-    _wingPaint.color = planet.companionColor;
-    canvas.drawLine(const Offset(-8, -2), const Offset(-4, -2), _wingPaint);
-    canvas.drawLine(const Offset(4, -2), const Offset(8, -2), _wingPaint);
-    canvas.drawLine(const Offset(-8, 2), const Offset(-4, 2), _wingPaint);
-    canvas.drawLine(const Offset(4, 2), const Offset(8, 2), _wingPaint);
+    // Vessel Body
+    final vesselPaint = Paint()..color = const Color(0xFFF0F7FF);
+    canvas.drawCircle(Offset(shipX, shipY), 6.0, vesselPaint);
+
+    // Cockpit
+    final cockpitPaint = Paint()..color = const Color(0xFF8CEFFF);
+    canvas.drawCircle(Offset(shipX - 1.2, shipY - 1.2), 2.2, cockpitPaint);
 
     canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _ShowcaseOrbitPainter oldDelegate) =>
-      oldDelegate.planet != planet;
+  bool shouldRepaint(covariant _HangarOrbitPainter oldDelegate) => true;
 }
 
-/// Item card in the worlds list.
-class _WorldListCard extends StatelessWidget {
-  final FleetPlanet planet;
+/// Catalog Card for horizontal carousel item
+class _PlanetCatalogCard extends StatelessWidget {
+  final FleetPlanet world;
   final bool isUnlocked;
   final bool isEquipped;
   final bool isSelected;
@@ -758,9 +876,8 @@ class _WorldListCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onEquip;
 
-  const _WorldListCard({
-    super.key,
-    required this.planet,
+  const _PlanetCatalogCard({
+    required this.world,
     required this.isUnlocked,
     required this.isEquipped,
     required this.isSelected,
@@ -774,144 +891,207 @@ class _WorldListCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? kSurfaceColor.withValues(alpha: 0.75)
-              : kSurfaceColor.withValues(alpha: 0.35),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected
-                ? planet.primaryColor.withValues(alpha: 0.8)
-                : kBorderSoft.withValues(alpha: 0.12),
-            width: isSelected ? 1.5 : 1.0,
+      child: Container(
+        width: 100,
+        height: 130,
+        clipBehavior: Clip.antiAlias,
+        decoration: ShapeDecoration(
+          color: const Color(0xD90C1626),
+          shape: RoundedRectangleBorder(
+            side: BorderSide(
+              width: isSelected ? 1.5 : 1.0,
+              color: isSelected ? const Color(0xFF8CEFFF) : const Color(0x268CEFFF),
+            ),
+            borderRadius: BorderRadius.circular(12),
           ),
-          boxShadow: isSelected
-              ? [
+          shadows: isSelected
+              ? const [
                   BoxShadow(
-                    color: planet.primaryColor.withValues(alpha: 0.15),
-                    blurRadius: 14,
+                    color: Color(0x228CEFFF),
+                    blurRadius: 12,
                   ),
                 ]
               : null,
         ),
-        child: Row(
+        child: Stack(
           children: [
-            // Planet thumbnail with bounded cache dimensions
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: planet.glowColor.withValues(alpha: 0.3),
-                    blurRadius: 10,
-                  ),
-                ],
-              ),
-              child: ClipOval(
-                child: Transform.scale(
-                  scale: 1024 / 888,
-                  child: Image.asset(
-                    planet.assetPath,
-                    fit: BoxFit.cover,
-                    cacheWidth: 120,
-                    cacheHeight: 120,
-                    gaplessPlayback: true,
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(width: 14),
-
-            // Planet details
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    planet.name,
-                    style: GoogleFonts.orbitron(
-                      color: kTextColor,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    planet.subtitle,
-                    style: GoogleFonts.inter(
-                      color: kTextMuted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Status indicator / button
-            if (isEquipped)
-              Text(
-                strings.equipped,
-                style: GoogleFonts.inter(
-                  color: const Color(0xFF34D399),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              )
-            else if (isUnlocked)
-              GestureDetector(
-                onTap: onEquip,
-                behavior: HitTestBehavior.opaque,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: kAccentColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: kAccentColor.withValues(alpha: 0.35),
-                    ),
-                  ),
-                  child: Text(
-                    strings.equip,
-                    style: GoogleFonts.inter(
-                      color: kAccentColor,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: kPillSurface.withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: kBorderSoft.withValues(alpha: 0.15),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FigmaIcon.lock(size: 13, color: kTextMuted),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${planet.price}',
-                      style: GoogleFonts.inter(
-                        color: kTextColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: const [FontFeature.tabularFigures()],
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Planet Thumbnail Image (100x84)
+                SizedBox(
+                  width: 100,
+                  height: 84,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.asset(
+                        world.assetPath,
+                        fit: BoxFit.cover,
+                        filterQuality: FilterQuality.medium,
+                        cacheWidth: 200,
+                        gaplessPlayback: true,
                       ),
+                      // Radial dark shadow to enhance contrast
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Color(0xB00C1626)],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Name & Status Pill
+                Padding(
+                  padding: const EdgeInsets.only(top: 3, left: 8, right: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        world.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.orbitron(
+                          color: const Color(0xFFF0F7FF),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      if (isEquipped)
+                        Container(
+                          height: 17,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          decoration: ShapeDecoration(
+                            color: const Color(0x168CEFFF),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              FigmaIcon.check(size: 8, color: const Color(0xFF8CEFFF)),
+                              const SizedBox(width: 4),
+                              Text(
+                                'EQUIPPED',
+                                style: GoogleFonts.inter(
+                                  color: const Color(0xFF8CEFFF),
+                                  fontSize: 6.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else if (isSelected && !isUnlocked)
+                        Container(
+                          height: 17,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          decoration: ShapeDecoration(
+                            color: const Color(0x168CEFFF),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          child: Text(
+                            'SELECTED',
+                            style: GoogleFonts.inter(
+                              color: const Color(0xFF8CEFFF),
+                              fontSize: 6.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        )
+                      else if (isUnlocked)
+                        GestureDetector(
+                          onTap: onEquip,
+                          behavior: HitTestBehavior.opaque,
+                          child: Container(
+                            height: 17,
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            decoration: ShapeDecoration(
+                              color: isSelected
+                                  ? const Color(0x228CEFFF)
+                                  : Colors.white.withValues(alpha: 0.05),
+                              shape: RoundedRectangleBorder(
+                                side: BorderSide(
+                                  width: 0.8,
+                                  color: isSelected
+                                      ? const Color(0xFF8CEFFF)
+                                      : Colors.transparent,
+                                ),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                strings.equip,
+                                style: GoogleFonts.inter(
+                                  color: isSelected
+                                      ? const Color(0xFF8CEFFF)
+                                      : const Color(0xFFF0F7FF),
+                                  fontSize: 6.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          height: 17,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          decoration: ShapeDecoration(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              FigmaIcon.stardust(size: 9),
+                              const SizedBox(width: 3),
+                              Text(
+                                _formatThousands(world.price),
+                                style: GoogleFonts.inter(
+                                  color: const Color(0xFFFFD166),
+                                  fontSize: 6.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            // Lock Overlay Icon (Top Right)
+            if (!isUnlocked)
+              Positioned(
+                right: 6,
+                top: 6,
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  alignment: Alignment.center,
+                  decoration: ShapeDecoration(
+                    color: const Color(0xAA050814),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(11),
                     ),
-                  ],
+                  ),
+                  child: FigmaIcon.lock(size: 11, color: const Color(0xFFB8D9ED)),
                 ),
               ),
           ],
@@ -921,20 +1101,100 @@ class _WorldListCard extends StatelessWidget {
   }
 }
 
-/// Big bottom action button (Unlock / Equip / Equipped).
-class _MarketActionButton extends StatelessWidget {
+/// Active Fleet Bundle Info Capsule
+class _BundleInfoCapsule extends StatelessWidget {
+  final FleetPlanet planet;
+  final bool isUnlocked;
+  final AppStrings strings;
+
+  const _BundleInfoCapsule({
+    required this.planet,
+    required this.isUnlocked,
+    required this.strings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 342,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0x600C1626),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0x208CEFFF),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: ShapeDecoration(
+              color: const Color(0x13A855F7),
+              shape: RoundedRectangleBorder(
+                side: const BorderSide(
+                  width: 1,
+                  color: Color(0x40A855F7),
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: FigmaIcon.orbit(size: 18, color: const Color(0xFFA855F7)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${planet.name} + ${planet.companionName}',
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFFF0F7FF),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Unlock a world. Bring its companion.',
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFF7F91AB),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (!isUnlocked)
+            FigmaIcon.lock(size: 15, color: const Color(0xFF7F91AB))
+          else
+            FigmaIcon.check(size: 15, color: const Color(0xFF8CEFFF)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Primary Action CTA Button (Unlock / Equip / Equipped)
+class _ActionButton extends StatelessWidget {
   final FleetPlanet planet;
   final bool isUnlocked;
   final bool isEquipped;
-  final int currentDust;
+  final int totalDust;
   final AppStrings strings;
   final VoidCallback onPressed;
 
-  const _MarketActionButton({
+  const _ActionButton({
     required this.planet,
     required this.isUnlocked,
     required this.isEquipped,
-    required this.currentDust,
+    required this.totalDust,
     required this.strings,
     required this.onPressed,
   });
@@ -943,28 +1203,25 @@ class _MarketActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     if (isEquipped) {
       return Container(
-        height: 52,
+        height: 56,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: kSurfaceColor.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: const Color(0xFF34D399).withValues(alpha: 0.4),
-            width: 1.2,
-          ),
+          color: const Color(0x1A8CEFFF),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0x408CEFFF), width: 1.2),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.check_circle_outline, color: Color(0xFF34D399), size: 18),
+            FigmaIcon.check(size: 16, color: const Color(0xFF8CEFFF)),
             const SizedBox(width: 8),
             Text(
-              strings.equippedFleetButton,
+              'EQUIPPED FLEET',
               style: GoogleFonts.orbitron(
-                color: const Color(0xFF34D399),
-                fontSize: 14,
+                color: const Color(0xFF8CEFFF),
+                fontSize: 11,
                 fontWeight: FontWeight.w700,
-                letterSpacing: 1.5,
+                letterSpacing: 1.2,
               ),
             ),
           ],
@@ -975,82 +1232,108 @@ class _MarketActionButton extends StatelessWidget {
     if (isUnlocked) {
       return GestureDetector(
         onTap: onPressed,
+        behavior: HitTestBehavior.opaque,
         child: Container(
-          height: 52,
+          height: 56,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: kAccentColor.withValues(alpha: 0.2),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: kAccentColor,
-              width: 1.5,
+            gradient: const LinearGradient(
+              colors: [Color(0xFF0F3254), Color(0xFF0C243C)],
             ),
-            boxShadow: [
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF8CEFFF), width: 1.4),
+            boxShadow: const [
               BoxShadow(
-                color: kAccentColor.withValues(alpha: 0.3),
-                blurRadius: 18,
-                spreadRadius: 1,
+                color: Color(0x358CEFFF),
+                blurRadius: 16,
               ),
             ],
           ),
-          child: Text(
-            strings.equipPlanetButton(planet.name.toUpperCase()),
-            style: GoogleFonts.orbitron(
-              color: kAccentColor,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.5,
-            ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'EQUIP FLEET',
+                style: GoogleFonts.orbitron(
+                  color: const Color(0xFF8CEFFF),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(width: 8),
+              FigmaIcon.arrowRight(size: 15, color: const Color(0xFF8CEFFF)),
+            ],
           ),
         ),
       );
     }
 
-    // Locked state
-    final canAfford = currentDust >= planet.price;
-
+    // Locked State: Vibrant Glowing Gradient Button
     return GestureDetector(
       onTap: onPressed,
+      behavior: HitTestBehavior.opaque,
       child: Container(
-        height: 52,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: canAfford ? kAccentColor : kSurfaceColor.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: canAfford ? kAccentColor : kBorderSoft.withValues(alpha: 0.2),
-            width: 1.5,
+        height: 56,
+        decoration: ShapeDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFB5F7FF), Color(0xFF56D7F0)],
           ),
-          boxShadow: canAfford
-              ? [
-                  BoxShadow(
-                    color: kAccentColor.withValues(alpha: 0.4),
-                    blurRadius: 20,
-                    spreadRadius: 2,
-                  ),
-                ]
-              : null,
+          shape: RoundedRectangleBorder(
+            side: const BorderSide(
+              width: 1,
+              color: Color(0xFFC9FBFF),
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          shadows: const [
+            BoxShadow(
+              color: Color(0x558CEFFF),
+              blurRadius: 20,
+            ),
+          ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Container(
+              decoration: const BoxDecoration(
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0x80FFD166),
+                    blurRadius: 10,
+                  ),
+                ],
+              ),
+              child: FigmaIcon.stardust(size: 18),
+            ),
+            const SizedBox(width: 10),
             Text(
-              strings.unlockPlanetButton(planet.price),
+              'UNLOCK FOR ${_formatThousands(planet.price)} STARDUST',
               style: GoogleFonts.orbitron(
-                color: canAfford ? const Color(0xFF050814) : kTextMuted,
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.2,
+                color: const Color(0xFF071722),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.0,
               ),
             ),
             const SizedBox(width: 8),
-            FigmaIcon.stardust(
-              size: 16,
-              color: canAfford ? const Color(0xFF050814) : kTextMuted,
-            ),
+            FigmaIcon.arrowRight(size: 16, color: const Color(0xFF071722)),
           ],
         ),
       ),
     );
   }
+}
+
+String _formatThousands(int value) {
+  final s = value.abs().toString();
+  final buf = StringBuffer(value < 0 ? '-' : '');
+  for (int i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
+    buf.write(s[i]);
+  }
+  return buf.toString();
 }

@@ -1,15 +1,17 @@
 /// Main menu — Galaxy Orbit (Figma: "Main menu" frame, 390×844).
 ///
-/// Every foreground element is positioned with the exact coordinates of the
-/// Figma export inside a 390×844 design frame, which is then scaled to the
-/// device with [FittedBox]. The space background is full-bleed underneath.
-///
-/// Layers (bottom → top):
-///  1. Galaxy background image (slow Ken-Burns drift)
-///  2. Twinkling star field
-///  3. Readability gradient
-///  4. Design frame: settings chip, Stardust wallet, title, Terra + Luna
-///     orbit system, PLAY gravity-wave button, Hangar button.
+/// Features:
+///  1. Deep space background with subtle stars and atmospheric drift
+///  2. Top Bar: Frosted Settings chip (left) & Stardust Wallet pill (right)
+///  3. Hero Title: "GALAXY" & glowing "ORBIT" with tagline "ONE TAP. INFINITE POSSIBILITY"
+///  4. Celestial Stage:
+///     - Telemetry header: "SOL SYSTEM / 03" & "● SYNCED" badge
+///     - 3D rotating textured world with atmospheric rim glow
+///     - Inclined neon orbit ring with revolving satellite companion
+///     - Capsule caption: "• TERRA • LUNA COMPANION"
+///  5. Gravity-Wave PLAY Button with concentric pulse waves and play triangle glyph
+///  6. Progress summary: "Continue your journey • Best distance: Level 14"
+///  7. Floating Hangar / Celestial Market glass card with spaceship icon & unlocked pill
 library;
 
 import 'dart:math';
@@ -34,15 +36,15 @@ import 'settings_modal.dart';
 const double _kLoopSeconds = 60;
 
 /// Terra / Luna geometry (Figma coordinates).
-const Offset _kPlanetCenter = Offset(195, 434);
-const double _kPlanetRadius = 123.2;
-const double _kOrbitRadius = 139.65;
-const double _kMoonRadius = 11.2;
-const double _kMoonPeriod = 15; // seconds per orbit (4 loops / clock)
+const Offset _kPlanetCenter = Offset(195, 415);
+const double _kPlanetRadius = 118.0;
+const double _kOrbitRadius = 142.0;
+const double _kMoonRadius = 10.5;
+const double _kMoonPeriod = 15; // seconds per orbit
 
 /// PLAY button geometry (Figma coordinates).
-const Offset _kPlayCenter = Offset(195, 650);
-const double _kPulsePeriod = 2.4; // seconds (25 loops / clock)
+const Offset _kPlayCenter = Offset(195, 638);
+const double _kPulsePeriod = 2.4; // seconds
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -52,8 +54,10 @@ class MainMenuScreen extends StatefulWidget {
 }
 
 class _MainMenuScreenState extends State<MainMenuScreen>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _clock;
+  late final AnimationController _gearController;
+  late final Animation<double> _gearRotation;
 
   @override
   void initState() {
@@ -64,6 +68,13 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       vsync: this,
       duration: const Duration(seconds: 60),
     )..repeat();
+    _gearController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _gearRotation = Tween<double>(begin: 0.0, end: pi / 3).animate(
+      CurvedAnimation(parent: _gearController, curve: Curves.easeOutCubic),
+    );
   }
 
   @override
@@ -85,6 +96,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _gearController.dispose();
     _clock.dispose();
     super.dispose();
   }
@@ -108,6 +120,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   }
 
   void _openSettings() {
+    _gearController.forward(from: 0.0);
     if (context.read<SettingsProvider>().vibrationEnabled) {
       HapticService.selectionClick();
     }
@@ -148,17 +161,20 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     final reducedMotion = context.select<SettingsProvider, bool>(
       (s) => s.reducedMotion,
     );
+    final unlockedCount = context.select<GameStateProvider, int>(
+      (g) => g.unlockedPlanetIds.length,
+    );
 
     return Scaffold(
       backgroundColor: kBackgroundColor,
       body: Stack(
         children: [
-          // 0. Solid Deep Space Base Canvas (prevents window bleed / subpixel gaps)
+          // 0. Base canvas
           const Positioned.fill(
             child: ColoredBox(color: kBackgroundColor),
           ),
 
-          // 1. Galaxy background with a slow, seamless drift.
+          // 1. Galaxy background with a slow drift
           Positioned.fill(
             child: RepaintBoundary(
               child: AnimatedBuilder(
@@ -181,7 +197,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             ),
           ),
 
-          // 2. Twinkling stars.
+          // 2. Twinkling stars
           Positioned.fill(
             child: RepaintBoundary(
               child: IgnorePointer(
@@ -190,7 +206,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             ),
           ),
 
-          // 3. Readability gradient (keeps lower UI calm).
+          // 3. Readability gradient
           Positioned.fill(
             child: IgnorePointer(
               child: DecoratedBox(
@@ -202,7 +218,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                       kBackgroundColor.withValues(alpha: 0.10),
                       Colors.transparent,
                       kBackgroundColor.withValues(alpha: 0.55),
-                      kBackgroundColor.withValues(alpha: 0.92),
+                      kBackgroundColor.withValues(alpha: 0.94),
                     ],
                     stops: const [0.0, 0.35, 0.75, 1.0],
                   ),
@@ -211,7 +227,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             ),
           ),
 
-          // 4. Figma design frame, scaled to fit the device.
+          // 4. Main Design Frame (390x844 responsive)
           Positioned.fill(
             child: SafeArea(
               child: Center(
@@ -220,14 +236,14 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                   child: SizedBox(
                     width: kDesignWidth,
                     height: kDesignHeight,
-                    child: _buildFrame(equippedPlanet, strings),
+                    child: _buildFrame(equippedPlanet, strings, unlockedCount),
                   ),
                 ),
               ),
             ),
           ),
 
-          // 5. Top Bar: Settings (üst sol) & Stardust (üst sağ) ekran köşelerine daha yakın hizalı
+          // 5. Top Bar: Settings & Stardust Wallet Pill
           Positioned(
             top: 0,
             left: 0,
@@ -235,12 +251,12 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             child: SafeArea(
               bottom: false,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    // Ayarlar butonu (sol üst köşe)
+                    // Settings button
                     _Pressable(
                       onTap: _openSettings,
                       semanticLabel: strings.settingsSemantic,
@@ -249,25 +265,34 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                         width: 40,
                         height: 40,
                         alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: kChipSurface.withValues(alpha: 0.12),
-                          border: Border.all(
-                            color: kBorderSoft.withValues(alpha: 0.20),
-                            width: 1.2,
+                        decoration: ShapeDecoration(
+                          color: const Color(0xD90C1626),
+                          shape: RoundedRectangleBorder(
+                            side: const BorderSide(
+                              width: 1,
+                              color: Color(0x268CEFFF),
+                            ),
+                            borderRadius: BorderRadius.circular(100),
                           ),
-                          boxShadow: [
+                          shadows: const [
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.35),
+                              color: Color(0x40000000),
                               blurRadius: 10,
                             ),
                           ],
                         ),
-                        child: FigmaIcon.gear(size: 18),
+                        child: AnimatedBuilder(
+                          animation: _gearRotation,
+                          builder: (context, child) => Transform.rotate(
+                            angle: _gearRotation.value,
+                            child: child,
+                          ),
+                          child: FigmaIcon.gear(size: 18, color: const Color(0xFFF0F7FF)),
+                        ),
                       ),
                     ),
 
-                    // Stardust cüzdan hapı (sağ üst köşe)
+                    // Stardust Wallet Pill
                     Selector<GameStateProvider, int>(
                       selector: (_, g) => g.totalStarDust,
                       builder: (_, dust, _) => _WalletPill(amount: dust),
@@ -282,28 +307,27 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     );
   }
 
-  Widget _buildFrame(FleetPlanet equippedPlanet, AppStrings strings) {
+  Widget _buildFrame(FleetPlanet equippedPlanet, AppStrings strings, int unlockedCount) {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-
         // ── Title: GALAXY ───────────────────────────────────────────────────
         Positioned(
           left: 0,
           right: 0,
-          top: 105,
+          top: 98,
           child: Center(
             child: Text(
               'GALAXY',
               style: GoogleFonts.inter(
                 color: kTitleSoft,
-                fontSize: 25,
+                fontSize: 24,
                 fontWeight: FontWeight.w300,
-                letterSpacing: 1.5,
+                letterSpacing: 4.0,
                 shadows: [
                   Shadow(
                     color: kAccentColor.withValues(alpha: 0.45),
-                    blurRadius: 22,
+                    blurRadius: 20,
                   ),
                 ],
               ),
@@ -311,28 +335,32 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           ),
         ),
 
-        // ── Title: ORBIT (fits glyph box) ──────────────────────────────────
+        // ── Title: ORBIT ───────────────────────────────────────────────────
         Positioned(
           left: 0,
           right: 0,
-          top: 155,
+          top: 142,
           child: Center(
             child: SizedBox(
-              width: 200,
-              height: 54,
+              width: 220,
+              height: 56,
               child: FittedBox(
                 child: Text(
                   'ORBIT',
                   style: GoogleFonts.orbitron(
-                    color: kTextColor,
-                    fontSize: 60,
+                    color: const Color(0xFF8CEFFF),
+                    fontSize: 58,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: 2,
+                    letterSpacing: 3,
                     height: 1.0,
-                    shadows: [
+                    shadows: const [
                       Shadow(
-                        color: kAccentColor.withValues(alpha: 0.40),
-                        blurRadius: 22,
+                        color: Color(0x668CEFFF),
+                        blurRadius: 24,
+                      ),
+                      Shadow(
+                        color: Color(0x4038BDF8),
+                        blurRadius: 36,
                       ),
                     ],
                   ),
@@ -346,13 +374,13 @@ class _MainMenuScreenState extends State<MainMenuScreen>
         Positioned(
           left: 0,
           right: 0,
-          top: 222,
+          top: 210,
           child: Center(
             child: Text(
               strings.menuTagline,
               style: GoogleFonts.inter(
                 color: kTextMuted,
-                fontSize: 9.5,
+                fontSize: 10,
                 fontWeight: FontWeight.w500,
                 letterSpacing: 2.4,
               ),
@@ -360,7 +388,55 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           ),
         ),
 
-        // ── Equipped planet (center 195,434  r 123.2) ──────────────────────────
+        // ── Telemetry Labels above Planet ──────────────────────────────────
+        Positioned(
+          left: 24,
+          top: 275,
+          child: Text(
+            'SOL SYSTEM / 03',
+            style: GoogleFonts.inter(
+              color: const Color(0xFF647B9B),
+              fontSize: 9,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 1.5,
+            ),
+          ),
+        ),
+        Positioned(
+          right: 24,
+          top: 275,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 5,
+                height: 5,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Color(0xFF8CEFFF),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0x808CEFFF),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'SYNCED',
+                style: GoogleFonts.inter(
+                  color: const Color(0xFF8CEFFF),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // ── Equipped 3D Planet Body ─────────────────────────────────────────
         Positioned(
           left: _kPlanetCenter.dx - _kPlanetRadius,
           top: _kPlanetCenter.dy - _kPlanetRadius,
@@ -369,7 +445,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           child: _MenuPlanet(planet: equippedPlanet),
         ),
 
-        // ── Orbit ring + companion (animated) ─────────────────────────
+        // ── Inclined Orbit Ring + Companion System ─────────────────────────
         Positioned.fill(
           child: RepaintBoundary(
             child: IgnorePointer(
@@ -380,28 +456,67 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           ),
         ),
 
-        // ── Planet caption ─────────────────────────────────────────────────
+        // ── Planet Caption Capsule (• TERRA • LUNA COMPANION) ───────────────
         Positioned(
           left: 0,
           right: 0,
-          top: 550,
+          top: 546,
           child: Center(
-            child: Text(
-              '${equippedPlanet.name.toUpperCase()}  •  ${equippedPlanet.companionName.toUpperCase()} ${strings.companion}',
-              style: GoogleFonts.inter(
-                color: kTextMuted,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+              decoration: ShapeDecoration(
+                color: const Color(0xD90C1626),
+                shape: RoundedRectangleBorder(
+                  side: const BorderSide(
+                    width: 1,
+                    color: Color(0x268CEFFF),
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                shadows: const [
+                  BoxShadow(
+                    color: Color(0x30000000),
+                    blurRadius: 10,
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 4,
+                    height: 4,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFF8CEFFF),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Color(0x608CEFFF),
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${equippedPlanet.name.toUpperCase()}  •  ${equippedPlanet.companionName.toUpperCase()} ${strings.companion}',
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFFB8D9ED),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
         ),
 
-        // ── PLAY gravity-wave button (center 195,640) ──────────────────────
+        // ── PLAY gravity-wave button (center 195,638) ───────────────────────
         Positioned(
           left: _kPlayCenter.dx - 70,
-          top: 640 - 70,
+          top: _kPlayCenter.dy - 70,
           width: 140,
           height: 140,
           child: RepaintBoundary(
@@ -409,11 +524,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           ),
         ),
 
-        // ── Continue line (mesafe / seviye) ────────────────────────────────
+        // ── Continue line (distance / level) ────────────────────────────────
         Positioned(
           left: 0,
           right: 0,
-          top: 728,
+          top: 720,
           child: Center(
             child: Selector<GameStateProvider, int>(
               selector: (_, g) => g.bestDistance,
@@ -422,7 +537,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                     ? strings.journeyContinue(best)
                     : strings.journeyBegin,
                 style: GoogleFonts.inter(
-                  color: kTextMuted,
+                  color: const Color(0xFF7F91AB),
                   fontSize: 12,
                   fontWeight: FontWeight.w400,
                 ),
@@ -431,39 +546,73 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           ),
         ),
 
-        // ── Hangar / Celestial Market (kenarlara daha yakın, orantılı x30 w330 y768) ───
+        // ── Hangar / Celestial Market Glass Card (x24 w342 y754) ────────────
         Positioned(
-          left: 30,
-          top: 768,
-          width: 330,
-          height: 48,
+          left: 24,
+          top: 754,
+          width: 342,
+          height: 56,
           child: _Pressable(
             onTap: _openHangar,
             semanticLabel: strings.hangarTitle,
             child: Container(
               key: const Key('menu_hangar_button'),
-              decoration: BoxDecoration(
-                color: kSurfaceColor.withValues(alpha: 0.63),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: kBorderSoft.withValues(alpha: 0.15)),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: ShapeDecoration(
+                color: const Color(0xD90C1626),
+                shape: RoundedRectangleBorder(
+                  side: const BorderSide(
+                    width: 1,
+                    color: Color(0x268CEFFF),
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                shadows: const [
+                  BoxShadow(
+                    color: Color(0x40000000),
+                    blurRadius: 16,
+                  ),
+                ],
               ),
               child: Row(
                 children: [
-                  const SizedBox(width: 24),
-                  FigmaIcon.orbit(),
+                  FigmaIcon.rocket(size: 22, color: const Color(0xFF8CEFFF)),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Text(
                       strings.hangarTitle,
-                      style: GoogleFonts.inter(
-                        color: kTextColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.orbitron(
+                        color: const Color(0xFFF0F7FF),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
                       ),
                     ),
                   ),
-                  FigmaIcon.chevron(),
-                  const SizedBox(width: 24),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF101B2C),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: const Color(0xFF1E3250),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Text(
+                      '$unlockedCount / ${FleetCatalog.worlds.length} UNLOCKED',
+                      style: GoogleFonts.orbitron(
+                        color: const Color(0xFF8CEFFF),
+                        fontSize: 8.5,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FigmaIcon.chevron(size: 14, color: const Color(0xFF8CEFFF)),
                 ],
               ),
             ),
@@ -475,10 +624,9 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Widgets
+// Sub-components: Pressable, Wallet Pill, Planet, Play Button & Orbit Painter
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// Scales its child down slightly while pressed (micro-interaction).
 class _Pressable extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
@@ -531,18 +679,20 @@ class _WalletPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       key: const Key('menu_wallet_pill'),
-      height: 34,
+      height: 40,
       padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: kPillSurface.withValues(alpha: 0.65),
-        borderRadius: BorderRadius.circular(17),
-        border: Border.all(
-          color: kBorderSoft.withValues(alpha: 0.20),
-          width: 1.2,
+      decoration: ShapeDecoration(
+        color: const Color(0xFF101B2C),
+        shape: RoundedRectangleBorder(
+          side: const BorderSide(
+            width: 1,
+            color: Color(0x268CEFFF),
+          ),
+          borderRadius: BorderRadius.circular(100),
         ),
-        boxShadow: [
+        shadows: const [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.30),
+            color: Color(0x40000000),
             blurRadius: 10,
           ),
         ],
@@ -550,15 +700,33 @@ class _WalletPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          FigmaIcon.stardust(),
+          Container(
+            decoration: const BoxDecoration(
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x80FFD166),
+                  blurRadius: 10,
+                ),
+              ],
+            ),
+            child: FigmaIcon.stardust(size: 15),
+          ),
           const SizedBox(width: 8),
           Text(
             formatThousands(amount),
+            style: GoogleFonts.orbitron(
+              color: const Color(0xFFF0F7FF),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            'Stardust',
             style: GoogleFonts.inter(
-              color: kTextColor,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              fontFeatures: const [FontFeature.tabularFigures()],
+              color: const Color(0xFF9BACCA),
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -567,7 +735,6 @@ class _WalletPill extends StatelessWidget {
   }
 }
 
-/// Formats 1240 → "1,240".
 String formatThousands(int value) {
   final s = value.abs().toString();
   final buf = StringBuffer(value < 0 ? '-' : '');
@@ -578,12 +745,10 @@ String formatThousands(int value) {
   return buf.toString();
 }
 
-/// Equipped celestial body: textured sphere with atmosphere glow and day/night shading.
 class _MenuPlanet extends StatelessWidget {
   final FleetPlanet planet;
   const _MenuPlanet({required this.planet});
 
-  /// The source image has the sphere spanning ~888 of its 1024 px.
   static const double _textureScale = 1024 / 888;
 
   @override
@@ -593,8 +758,8 @@ class _MenuPlanet extends StatelessWidget {
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: planet.glowColor.withValues(alpha: 0.38),
-            blurRadius: 32,
+            color: planet.glowColor.withValues(alpha: 0.45),
+            blurRadius: 36,
             spreadRadius: 2,
           ),
         ],
@@ -614,7 +779,7 @@ class _MenuPlanet extends StatelessWidget {
                 gaplessPlayback: true,
               ),
             ),
-            // Terminator shadow: lit from upper-left.
+            // Terminator shading: lit from upper-left
             const DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
@@ -629,13 +794,13 @@ class _MenuPlanet extends StatelessWidget {
                 ),
               ),
             ),
-            // Thin atmospheric rim.
+            // Atmospheric rim
             DecoratedBox(
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: planet.primaryColor.withValues(alpha: 0.25),
-                  width: 1,
+                  color: planet.primaryColor.withValues(alpha: 0.35),
+                  width: 1.2,
                 ),
               ),
             ),
@@ -646,8 +811,6 @@ class _MenuPlanet extends StatelessWidget {
   }
 }
 
-/// PLAY button: filled core, glowing ring, static halo and an expanding
-/// "gravity wave" pulse.
 class _PlayButton extends StatelessWidget {
   final Animation<double> clock;
   final VoidCallback onTap;
@@ -664,14 +827,25 @@ class _PlayButton extends StatelessWidget {
         key: const Key('menu_play_button'),
         painter: _PlayRingsPainter(clock),
         child: Center(
-          child: Text(
-            label,
-            style: GoogleFonts.orbitron(
-              color: kTextColor,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.2,
-            ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Play Triangle Icon
+              CustomPaint(
+                size: const Size(20, 22),
+                painter: _PlayTrianglePainter(),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                style: GoogleFonts.orbitron(
+                  color: const Color(0xFFF0F7FF),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 2.0,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -679,9 +853,34 @@ class _PlayButton extends StatelessWidget {
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Painters
-// ═════════════════════════════════════════════════════════════════════════════
+class _PlayTrianglePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(2, 2)
+      ..lineTo(size.width - 2, size.height / 2)
+      ..lineTo(2, size.height - 2)
+      ..close();
+
+    final glowPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..color = const Color(0xFF8CEFFF)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+    canvas.drawPath(path, glowPaint);
+
+    final strokePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = const Color(0xFF8CEFFF);
+    canvas.drawPath(path, strokePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
 
 class _PlayRingsPainter extends CustomPainter {
   final Animation<double> clock;
@@ -694,44 +893,52 @@ class _PlayRingsPainter extends CustomPainter {
   final Paint _staticHaloPaint = Paint()
     ..style = PaintingStyle.stroke
     ..strokeWidth = 1
-    ..color = kAccentColor.withValues(alpha: 0.21);
+    ..color = kAccentColor.withValues(alpha: 0.20);
   final Paint _ringGlowPaint = Paint()
     ..style = PaintingStyle.stroke
     ..strokeWidth = 3
-    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 11);
+    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
   final Paint _ringPaint = Paint()
     ..style = PaintingStyle.stroke
-    ..strokeWidth = 1
-    ..color = kAccentColor;
+    ..strokeWidth = 1.4
+    ..color = const Color(0xFF8CEFFF);
 
   @override
   void paint(Canvas canvas, Size size) {
     final c = size.center(Offset.zero);
     final t = clock.value * _kLoopSeconds;
-    final p = (t % _kPulsePeriod) / _kPulsePeriod; // 0 → 1
+    final p = (t % _kPulsePeriod) / _kPulsePeriod;
     final breath = 0.5 + 0.5 * sin(p * 2 * pi);
 
-    // Inner core (r 40, #8CEFFF @ 8%).
-    _corePaint.color = kAccentColor.withValues(alpha: 0.082);
-    canvas.drawCircle(c, 40, _corePaint);
+    // Inner core (r 48, dark cyan radial gradient)
+    _corePaint.shader = const RadialGradient(
+      colors: [
+        Color(0x250C1626),
+        Color(0x9504101E),
+      ],
+    ).createShader(Rect.fromCircle(center: c, radius: 48));
+    canvas.drawCircle(c, 48, _corePaint);
 
-    // Expanding gravity wave.
-    _wavePaint.color = kAccentColor.withValues(alpha: 0.35 * (1 - p));
-    canvas.drawCircle(
-      c,
-      48.5 + 21 * Curves.easeOut.transform(p),
-      _wavePaint,
-    );
+    // Expanding gravity waves (2 rings)
+    for (int i = 0; i < 2; i++) {
+      final waveP = (p + i * 0.45) % 1.0;
+      _wavePaint.color = const Color(0xFF8CEFFF).withValues(alpha: 0.35 * (1 - waveP));
+      canvas.drawCircle(
+        c,
+        48.0 + 26.0 * Curves.easeOut.transform(waveP),
+        _wavePaint,
+      );
+    }
 
-    // Static outer halo (r 57.5 @ 21%).
-    canvas.drawCircle(c, 57.5, _staticHaloPaint);
+    // Static outer halo (r 62)
+    canvas.drawCircle(c, 62, _staticHaloPaint);
 
-    // Main ring glow (Figma drop-shadow blur 11) — breathes with the pulse.
-    _ringGlowPaint.color = kAccentColor.withValues(alpha: 0.30 + 0.30 * breath);
-    canvas.drawCircle(c, 48.5, _ringGlowPaint);
+    // Main ring glow
+    _ringGlowPaint.color = const Color(0xFF8CEFFF).withValues(alpha: 0.35 + 0.35 * breath);
+    canvas.drawCircle(c, 48.0, _ringGlowPaint);
 
-    // Main ring (r 48.5).
-    canvas.drawCircle(c, 48.5, _ringPaint);
+    // Main ring stroke
+    canvas.drawCircle(c, 48.0, _ringPaint);
   }
 
   @override
@@ -743,19 +950,17 @@ class _OrbitSystemPainter extends CustomPainter {
   final Animation<double> clock;
   final FleetPlanet planet;
 
-  _OrbitSystemPainter(this.clock, {required this.planet})
-      : super(repaint: clock);
+  _OrbitSystemPainter(this.clock, {required this.planet}) : super(repaint: clock);
 
-  /// Figma places companion at (309.8, 364) → starting angle on the ring.
   static final double _startAngle = atan2(364 - 434.0, 309.8 - 195.0);
-  static const double _tailSweep = 0.95; // radians
+  static const double _tailSweep = 0.95;
 
   final Paint _ringPaint = Paint()
     ..style = PaintingStyle.stroke
-    ..strokeWidth = 0.7;
+    ..strokeWidth = 0.9;
   final Paint _nebulaGlowPaint = Paint()
     ..style = PaintingStyle.stroke
-    ..strokeWidth = 9
+    ..strokeWidth = 10
     ..strokeCap = StrokeCap.round
     ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16);
   final Paint _tailPaint = Paint()
@@ -769,21 +974,20 @@ class _OrbitSystemPainter extends CustomPainter {
   Shader? _cachedMoonShader;
   Shader? _cachedTailShader;
   FleetPlanet? _cachedPlanet;
-  static const Rect _unitOrbitRect = Rect.fromLTWH(-_kOrbitRadius, -_kOrbitRadius, _kOrbitRadius * 2, _kOrbitRadius * 2);
+  static const Rect _unitOrbitRect =
+      Rect.fromLTWH(-_kOrbitRadius, -_kOrbitRadius, _kOrbitRadius * 2, _kOrbitRadius * 2);
 
   @override
   void paint(Canvas canvas, Size size) {
     final t = clock.value * _kLoopSeconds;
-    // Counter-clockwise on screen (angle decreases).
     final angle = _startAngle - 2 * pi * (t / _kMoonPeriod);
-    final ringRect =
-        Rect.fromCircle(center: _kPlanetCenter, radius: _kOrbitRadius);
+    final ringRect = Rect.fromCircle(center: _kPlanetCenter, radius: _kOrbitRadius);
 
-    // Orbit ring (#8CEFFF @ 38%, 0.7 px).
-    _ringPaint.color = planet.primaryColor.withValues(alpha: 0.38);
+    // Inclined elliptical orbit rings
+    _ringPaint.color = planet.primaryColor.withValues(alpha: 0.40);
     canvas.drawCircle(_kPlanetCenter, _kOrbitRadius, _ringPaint);
 
-    // Nebula glow under the tail.
+    // Nebula glow under tail
     _nebulaGlowPaint.color = planet.glowColor.withValues(alpha: 0.18);
     canvas.drawArc(
       ringRect,
@@ -799,7 +1003,9 @@ class _OrbitSystemPainter extends CustomPainter {
         center: const Alignment(-0.4, -0.45),
         radius: 1.1,
         colors: [planet.companionColor, planet.glowColor],
-      ).createShader(const Rect.fromLTWH(-_kMoonRadius, -_kMoonRadius, _kMoonRadius * 2, _kMoonRadius * 2));
+      ).createShader(
+        const Rect.fromLTWH(-_kMoonRadius, -_kMoonRadius, _kMoonRadius * 2, _kMoonRadius * 2),
+      );
       _cachedTailShader = SweepGradient(
         startAngle: 0,
         endAngle: _tailSweep,
@@ -810,7 +1016,6 @@ class _OrbitSystemPainter extends CustomPainter {
       ).createShader(_unitOrbitRect);
     }
 
-    // Dynamic tail fading away from companion (rotated via canvas transform — zero shader compilation per frame).
     canvas.save();
     canvas.translate(_kPlanetCenter.dx, _kPlanetCenter.dy);
     canvas.rotate(angle);
@@ -824,7 +1029,6 @@ class _OrbitSystemPainter extends CustomPainter {
     );
     canvas.restore();
 
-    // Dotted dust trail beyond the tail.
     for (int i = 0; i < 5; i++) {
       final a = angle + _tailSweep + 0.08 + i * 0.07;
       _dotPaint.color = planet.primaryColor.withValues(alpha: 0.6 - i * 0.12);
@@ -835,7 +1039,6 @@ class _OrbitSystemPainter extends CustomPainter {
       );
     }
 
-    // Companion sphere.
     final moon = _kPlanetCenter + Offset(cos(angle), sin(angle)) * _kOrbitRadius;
     _moonGlowPaint.color = planet.companionColor.withValues(alpha: 0.35);
     canvas.drawCircle(
@@ -856,50 +1059,38 @@ class _OrbitSystemPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _OrbitSystemPainter old) =>
-      old.planet != planet;
-}
-
-class _Star {
-  final double x, y, radius, phase;
-  final int cycles; // whole cycles per 60 s loop → seamless
-  const _Star(this.x, this.y, this.radius, this.phase, this.cycles);
+  bool shouldRepaint(covariant _OrbitSystemPainter old) => old.planet != planet;
 }
 
 class _TwinklePainter extends CustomPainter {
   final Animation<double> clock;
   _TwinklePainter(this.clock) : super(repaint: clock);
 
-  final Paint _paint = Paint();
+  static final List<({double x, double y, double baseR, double speed, double phase})> _stars = () {
+    final rng = Random(1337);
+    return List.generate(45, (i) {
+      return (
+        x: rng.nextDouble(),
+        y: rng.nextDouble(),
+        baseR: 0.6 + rng.nextDouble() * 1.4,
+        speed: 1.5 + rng.nextDouble() * 3.5,
+        phase: rng.nextDouble() * 2 * pi,
+      );
+    });
+  }();
 
-  static final List<Color> _whiteAlphaLut = List.generate(
-    256,
-    (a) => Color((a << 24) | 0x00FFFFFF),
-    growable: false,
-  );
-
-  static final List<_Star> _stars = List.generate(70, (i) {
-    final r = Random(1000 + i);
-    return _Star(
-      r.nextDouble(),
-      r.nextDouble(),
-      0.4 + r.nextDouble() * 1.1,
-      r.nextDouble() * 2 * pi,
-      3 + r.nextInt(10),
-    );
-  });
+  final Paint _starPaint = Paint()..color = Colors.white;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final v = clock.value;
+    final t = clock.value * _kLoopSeconds;
     for (final s in _stars) {
-      final tw = 0.5 + 0.5 * sin(v * 2 * pi * s.cycles + s.phase);
-      final aInt = ((0.08 + 0.55 * tw) * 255).toInt().clamp(0, 255);
-      _paint.color = _whiteAlphaLut[aInt];
+      final wave = 0.5 + 0.5 * sin(t * s.speed + s.phase);
+      _starPaint.color = Colors.white.withValues(alpha: 0.20 + 0.70 * wave);
       canvas.drawCircle(
         Offset(s.x * size.width, s.y * size.height),
-        s.radius,
-        _paint,
+        s.baseR * (0.8 + 0.4 * wave),
+        _starPaint,
       );
     }
   }
