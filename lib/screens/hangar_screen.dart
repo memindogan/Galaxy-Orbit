@@ -821,14 +821,21 @@ class _FeaturedWorldCard extends StatelessWidget {
       width: 342,
       height: 316,
       clipBehavior: Clip.antiAlias,
-      decoration: ShapeDecoration(
+      decoration: BoxDecoration(
         color: const Color(0xD90C1626),
-        shape: RoundedRectangleBorder(
-          side: const BorderSide(
-            width: 1,
-            color: Color(0x268CEFFF),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x30000000),
+            blurRadius: 16,
           ),
-          borderRadius: BorderRadius.circular(20),
+        ],
+      ),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          width: 1.0,
+          color: const Color(0x358CEFFF),
         ),
       ),
       child: Stack(
@@ -846,7 +853,24 @@ class _FeaturedWorldCard extends StatelessWidget {
             ),
           ),
 
-          // 2. REAL Planet Body (ClipOval with authentic spherical lighting & glowing atmosphere)
+          // 2. LAYER 1: Back Orbit Ring & Companion (Behind Planet)
+          Positioned(
+            left: 0,
+            top: 6,
+            width: 342,
+            height: 190,
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: _HangarOrbitPainter(
+                  clock,
+                  planet: planet,
+                  isForeground: false,
+                ),
+              ),
+            ),
+          ),
+
+          // 3. LAYER 2: REAL Planet Body (ClipOval with authentic spherical lighting & glowing atmosphere)
           Positioned(
             left: (342 - 150) / 2,
             top: 26,
@@ -855,7 +879,7 @@ class _FeaturedWorldCard extends StatelessWidget {
             child: _FeaturedPlanetBody(planet: planet),
           ),
 
-          // 3. Inclined Orbit Ring + Revolving Companion Vessel
+          // 4. LAYER 3: Front Orbit Ring & Companion (In Front of Planet)
           Positioned(
             left: 0,
             top: 6,
@@ -863,12 +887,16 @@ class _FeaturedWorldCard extends StatelessWidget {
             height: 190,
             child: RepaintBoundary(
               child: CustomPaint(
-                painter: _HangarOrbitPainter(clock, planet: planet),
+                painter: _HangarOrbitPainter(
+                  clock,
+                  planet: planet,
+                  isForeground: true,
+                ),
               ),
             ),
           ),
 
-          // 4. Bottom Gradient Fade for Typography Readability
+          // 5. Bottom Gradient Fade for Typography Readability
           Positioned(
             left: 0,
             top: 148,
@@ -888,34 +916,7 @@ class _FeaturedWorldCard extends StatelessWidget {
             ),
           ),
 
-          // 5. Sci-Fi Corner Bracket: Top Right (┐)
-          Positioned(
-            right: 16,
-            top: 16,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(width: 16, height: 1, color: const Color(0x808CEFFF)),
-                Container(width: 1, height: 10, color: const Color(0x808CEFFF)),
-              ],
-            ),
-          ),
-
-          // 6. Sci-Fi Corner Bracket: Bottom Left (└)
-          Positioned(
-            left: 16,
-            bottom: 16,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(width: 1, height: 8, color: const Color(0x508CEFFF)),
-                Container(width: 12, height: 1, color: const Color(0x508CEFFF)),
-              ],
-            ),
-          ),
-
-          // 7. Top Left Micro-Badge: "FEATURED WORLD / 09"
+          // 6. Top Left Micro-Badge: "FEATURED WORLD / 09"
           Positioned(
             left: 16,
             top: 16,
@@ -950,52 +951,48 @@ class _FeaturedWorldCard extends StatelessWidget {
             ),
           ),
 
-          // 8. Telemetry Tag
+          // 7. World Details & Telemetry
           Positioned(
-            left: 18,
-            top: 234,
-            child: Text(
-              _telemetryTag(planet),
-              style: GoogleFonts.inter(
-                color: planet.glowColor,
-                fontSize: 7.5,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0.8,
-              ),
-            ),
-          ),
-
-          // 9. Planet Name & Category Badge & Companion Info
-          Positioned(
-            left: 18,
-            top: 250,
-            right: 18,
+            left: 20,
+            right: 20,
+            bottom: 16,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                Text(
+                  _telemetryTag(planet),
+                  style: GoogleFonts.inter(
+                    color: planet.primaryColor,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+                const SizedBox(height: 5),
                 Row(
-                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Text(
                       planet.name.toUpperCase(),
                       style: GoogleFonts.orbitron(
                         color: const Color(0xFFF0F7FF),
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
                         letterSpacing: 1.2,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      height: 18,
+                      padding: const EdgeInsets.symmetric(horizontal: 7),
+                      alignment: Alignment.center,
                       decoration: ShapeDecoration(
-                        color: planet.glowColor.withValues(alpha: 0.12),
+                        color: planet.primaryColor.withValues(alpha: 0.14),
                         shape: RoundedRectangleBorder(
                           side: BorderSide(
-                            width: 1,
-                            color: planet.glowColor.withValues(alpha: 0.35),
+                            width: 0.8,
+                            color: planet.primaryColor.withValues(alpha: 0.40),
                           ),
                           borderRadius: BorderRadius.circular(5),
                         ),
@@ -1039,7 +1036,6 @@ class _FeaturedWorldCard extends StatelessWidget {
   }
 }
 
-/// Featured Planet Body showing the REAL selected planet image
 class _FeaturedPlanetBody extends StatelessWidget {
   final FleetPlanet planet;
 
@@ -1103,11 +1099,17 @@ class _FeaturedPlanetBody extends StatelessWidget {
 }
 
 /// CustomPainter: Inclined Orbit Ring & Companion Vessel
+/// CustomPainter: Inclined Orbit Ring & Companion Vessel with 3D Depth Layering
 class _HangarOrbitPainter extends CustomPainter {
   final Animation<double> clock;
   final FleetPlanet planet;
+  final bool isForeground;
 
-  _HangarOrbitPainter(this.clock, {required this.planet}) : super(repaint: clock);
+  _HangarOrbitPainter(
+    this.clock, {
+    required this.planet,
+    required this.isForeground,
+  }) : super(repaint: clock);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1121,78 +1123,192 @@ class _HangarOrbitPainter extends CustomPainter {
     final orbitA = 120.0;
     final orbitB = 42.0;
     final orbitRect = Rect.fromCenter(center: Offset.zero, width: orbitA * 2, height: orbitB * 2);
-
-    // Neon Orbit Ring (Draw ONLY front half from 0 to pi radians; rear is hidden behind planet)
-    final ringPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..strokeCap = StrokeCap.round
-      ..color = const Color(0xFF8CEFFF).withValues(alpha: 0.55);
-    canvas.drawArc(orbitRect, 0, pi, false, ringPaint);
-
-    // Faint outer ring aura (front half)
-    final auraPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.6
-      ..strokeCap = StrokeCap.round
-      ..color = const Color(0xFF8CEFFF).withValues(alpha: 0.25);
     final auraRect = Rect.fromCenter(
       center: Offset.zero,
       width: (orbitA + 6) * 2,
       height: (orbitB + 3) * 2,
     );
-    canvas.drawArc(auraRect, 0, pi, false, auraPaint);
 
-    // Revolving companion vessel
+    final pColor = planet.primaryColor;
+    final gColor = planet.glowColor;
+
+    // Orbit Ring Paint customized to the planet's celestial energy
+    final ringPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = pColor.withValues(alpha: isForeground ? 0.65 : 0.40);
+
+    final auraPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8
+      ..color = gColor.withValues(alpha: isForeground ? 0.30 : 0.18);
+
+    if (isForeground) {
+      // ── Front Layer (In front of Planet): draw 0 to pi radians ──────
+      canvas.drawArc(orbitRect, 0, pi, false, ringPaint);
+      canvas.drawArc(auraRect, 0, pi, false, auraPaint);
+    } else {
+      // ── Back Layer (Behind Planet): draw pi to 2*pi radians ──────────
+      // Note: The part directly behind the planet disk is naturally
+      // occluded by the opaque planet body in Layer 2. The left and right
+      // flanks extend seamlessly into open space.
+      canvas.drawArc(orbitRect, pi, pi, false, ringPaint);
+      canvas.drawArc(auraRect, pi, pi, false, auraPaint);
+    }
+
+    // Companion Orbit calculation:
     final shipAngle = t * 1.5;
     final shipX = orbitA * cos(shipAngle);
     final shipY = orbitB * sin(shipAngle);
 
-    // Determine 3D visibility of vessel:
-    // When ship is in back half (shipY < 0) and behind the planet disk (radius ~75),
-    // occlude the vessel so it realistically passes behind the planet body.
-    final distToPlanet = (Offset(shipX, shipY) - const Offset(4.5, -14.5)).distance;
-    final double shipOpacity;
-    if (shipY < 0 && distToPlanet <= 74.0) {
-      shipOpacity = 0.0; // Completely hidden behind planet
-    } else if (shipY < 0 && distToPlanet < 84.0) {
-      shipOpacity = (distToPlanet - 74.0) / 10.0; // Soft horizon fade at planet edge
-    } else {
-      shipOpacity = 1.0;
-    }
+    final isShipForeground = shipY >= 0;
 
-    if (shipOpacity > 0.01) {
-      // Ion Thruster Flame Glow behind vessel
-      final flamePaint = Paint()
-        ..shader = RadialGradient(
-          colors: [
-            const Color(0xFF8CEFFF).withValues(alpha: 0.9 * shipOpacity),
-            const Color(0xFF38BDF8).withValues(alpha: 0.35 * shipOpacity),
-            Colors.transparent,
-          ],
-          stops: const [0.0, 0.45, 1.0],
-        ).createShader(Rect.fromCircle(center: Offset(shipX + 7, shipY - 3), radius: 12));
-      canvas.drawCircle(Offset(shipX + 7, shipY - 3), 12, flamePaint);
-
-      // Vessel Body
-      final vesselPaint = Paint()
-        ..color = const Color(0xFFF0F7FF).withValues(alpha: shipOpacity);
-      canvas.drawCircle(Offset(shipX, shipY), 6.0, vesselPaint);
-
-      // Cockpit
-      final cockpitPaint = Paint()
-        ..color = const Color(0xFF8CEFFF).withValues(alpha: shipOpacity);
-      canvas.drawCircle(Offset(shipX - 1.2, shipY - 1.2), 2.2, cockpitPaint);
+    // Only paint the companion in its appropriate layer (foreground vs background)
+    if (isShipForeground == isForeground) {
+      _drawCompanion(canvas, shipX, shipY, shipAngle, planet);
     }
 
     canvas.restore();
+  }
+
+  void _drawCompanion(
+    Canvas canvas,
+    double shipX,
+    double shipY,
+    double shipAngle,
+    FleetPlanet planet,
+  ) {
+    final isMoon = planet.companionType.toLowerCase().contains('moon');
+    final pColor = planet.primaryColor;
+    final cColor = planet.companionColor;
+    final gColor = planet.glowColor;
+
+    // Trailing comet/ion dust particles along the orbit path
+    for (int i = 1; i <= 6; i++) {
+      final trailAngle = shipAngle - i * 0.055;
+      final tx = 120.0 * cos(trailAngle);
+      final ty = 42.0 * sin(trailAngle);
+      final alpha = (1.0 - i / 7.0) * 0.50;
+      final trailPaint = Paint()
+        ..color = Color.lerp(pColor, cColor, 0.4)!.withValues(alpha: alpha);
+      canvas.drawCircle(Offset(tx, ty), 3.2 - i * 0.4, trailPaint);
+    }
+
+    if (isMoon) {
+      // ── Natural Moon Archetype (e.g. Luna for Terra) ─────────────────
+      // Lunar Aura Glow
+      final moonAuraPaint = Paint()
+        ..color = cColor.withValues(alpha: 0.35)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+      canvas.drawCircle(Offset(shipX, shipY), 8.5, moonAuraPaint);
+
+      // Spherical Moon Body with terminator shading
+      final moonPaint = Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.35, -0.4),
+          radius: 1.0,
+          colors: [
+            cColor,
+            Color.lerp(cColor, const Color(0xFF1E293B), 0.7)!,
+            const Color(0xFF0F172A),
+          ],
+          stops: const [0.0, 0.65, 1.0],
+        ).createShader(Rect.fromCircle(center: Offset(shipX, shipY), radius: 6.5));
+      canvas.drawCircle(Offset(shipX, shipY), 6.5, moonPaint);
+
+      // Subtle lunar crater marks
+      final craterPaint = Paint()..color = const Color(0x35000000);
+      canvas.drawCircle(Offset(shipX - 1.8, shipY - 1.2), 1.2, craterPaint);
+      canvas.drawCircle(Offset(shipX + 2.0, shipY + 1.4), 1.0, craterPaint);
+      canvas.drawCircle(Offset(shipX + 0.2, shipY + 2.2), 0.7, craterPaint);
+    } else {
+      // ── Sci-Fi Companion Vessel / Satellite Archetype ─────────────────
+      // Determine movement direction vector along orbit tangent
+      final tangentX = -120.0 * sin(shipAngle);
+      final tangentY = 42.0 * cos(shipAngle);
+      final tangentAngle = atan2(tangentY, tangentX);
+
+      // Thruster Flame Plume behind vessel
+      final thrusterDir = Offset(-cos(tangentAngle), -sin(tangentAngle));
+      final thrusterPos = Offset(shipX, shipY) + thrusterDir * 6.5;
+
+      final flamePaint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            gColor,
+            pColor.withValues(alpha: 0.45),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.45, 1.0],
+        ).createShader(Rect.fromCircle(center: thrusterPos, radius: 11));
+      canvas.drawCircle(thrusterPos, 10, flamePaint);
+
+      canvas.save();
+      canvas.translate(shipX, shipY);
+      canvas.rotate(tangentAngle);
+
+      final type = planet.companionType.toLowerCase();
+
+      // Wings / Solar Arrays / Collector Fins
+      if (type.contains('skimmer') || type.contains('recon') || type.contains('probe')) {
+        // Swept delta wings
+        final wingPaint = Paint()
+          ..color = Color.lerp(cColor, const Color(0xFF0C1626), 0.3)!
+          ..style = PaintingStyle.fill;
+        final wingPath = Path()
+          ..moveTo(6, 0)
+          ..lineTo(-5, -6)
+          ..lineTo(-3, 0)
+          ..lineTo(-5, 6)
+          ..close();
+        canvas.drawPath(wingPath, wingPaint);
+
+        final wingTrim = Paint()
+          ..color = pColor
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.8;
+        canvas.drawPath(wingPath, wingTrim);
+      } else {
+        // Solar panels / Collector arrays
+        final panelPaint = Paint()..color = pColor.withValues(alpha: 0.85);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            const Rect.fromLTWH(-7, -1.2, 14, 2.4),
+            const Radius.circular(1),
+          ),
+          panelPaint,
+        );
+      }
+
+      // Main Hull Body with metallic directional shading
+      final hullPaint = Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.3, -0.3),
+          colors: [
+            const Color(0xFFFFFFFF),
+            cColor,
+            Color.lerp(cColor, const Color(0xFF0F172A), 0.65)!,
+          ],
+        ).createShader(const Rect.fromLTWH(-4.5, -4.5, 9, 9));
+      canvas.drawCircle(Offset.zero, 4.5, hullPaint);
+
+      // Cockpit / Energy Sensor Core (pulsing with planet color)
+      final corePaint = Paint()
+        ..color = pColor
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
+      canvas.drawCircle(const Offset(1.2, 0), 1.8, corePaint);
+
+      final coreCenter = Paint()..color = const Color(0xFFFFFFFF);
+      canvas.drawCircle(const Offset(1.2, 0), 0.9, coreCenter);
+
+      canvas.restore();
+    }
   }
 
   @override
   bool shouldRepaint(covariant _HangarOrbitPainter oldDelegate) => true;
 }
 
-/// Catalog Card for horizontal carousel item
 class _PlanetCatalogCard extends StatelessWidget {
   final FleetPlanet world;
   final bool isUnlocked;
