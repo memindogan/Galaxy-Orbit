@@ -2,21 +2,24 @@
 ///
 /// Features:
 ///  1. Top Bar: Circular back button at top-left, "CELESTIAL MARKET" title centered, Stardust wallet pill at top-right.
-///  2. Hero Showcase Card (342x340):
+///  2. Dual Tabs:
+///     - Tab 0: "Worlds & companions" (Dünyalar & uydular)
+///     - Tab 1: "Customizations" (Özelleştirmeler - Skins / Trails / Shockwaves)
+///  3. Hero Showcase Card (Tab 0):
 ///     - Sci-Fi corner brackets (top-right ┐ & bottom-left └)
 ///     - "FEATURED WORLD / 09" micro-badge with cyan glow dot
 ///     - Real-time high-fidelity selected planet imagery with spherical terminator shading and atmospheric glow
 ///     - Inclined elliptical neon orbit ring with revolving companion vessel and ion thruster flame
 ///     - Dynamic telemetry tag (e.g. "CORONA ACTIVITY +98.6%"), world name, category pill, and companion info
-///  3. Worlds & Companions header with fleet unlocked badge ("4 / 12 UNLOCKED")
 ///  4. Horizontal planet catalog carousel (12 celestial worlds with live statuses):
 ///     - EQUIPPED (cyan badge)
 ///     - OWNED / Equip (interactive equip action)
 ///     - SELECTED (1.5px glowing cyan active border)
 ///     - LOCKED (top-right lock badge + golden Stardust price)
-///  5. Carousel indicator pills (active 22x3 cyan pill, inactive 5x3 pills)
-///  6. Bundle info card ("Unlock a world. Bring its companion.")
-///  7. High-glow Bottom Action CTA Button (Unlock with Stardust / Equip Fleet / Equipped Fleet)
+///  5. Customizations Showcase & Catalog (Tab 1):
+///     - Live interactive orbital particle & shockwave preview
+///     - 4 Cosmic Customization bundles (Classic Neon, Stardust Sparkle, Dual Ion, Cyber Glitch)
+///     - High-glow Unlock / Equip action button
 library;
 
 import 'dart:math';
@@ -26,6 +29,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/app_strings.dart';
+import '../models/cosmic_customization.dart';
 import '../models/fleet_planet.dart';
 import '../providers/game_state_provider.dart';
 import '../providers/settings_provider.dart';
@@ -43,6 +47,8 @@ class _HangarScreenState extends State<HangarScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _clock;
   late String _selectedPlanetId;
+  late String _selectedCustomizationId;
+  int _selectedTab = 0; // 0 = Worlds & companions, 1 = Customizations
   final ScrollController _carouselController = ScrollController();
 
   @override
@@ -56,6 +62,7 @@ class _HangarScreenState extends State<HangarScreen>
 
     final gameState = context.read<GameStateProvider>();
     _selectedPlanetId = gameState.equippedPlanetId;
+    _selectedCustomizationId = gameState.equippedCustomizationId;
   }
 
   @override
@@ -82,6 +89,95 @@ class _HangarScreenState extends State<HangarScreen>
     setState(() {
       _selectedPlanetId = id;
     });
+  }
+
+  void _onSelectCustomization(String id) {
+    if (context.read<SettingsProvider>().vibrationEnabled) {
+      HapticService.selectionClick();
+    }
+    setState(() {
+      _selectedCustomizationId = id;
+    });
+  }
+
+  void _onCustomizationActionPressed() {
+    final gameState = context.read<GameStateProvider>();
+    final settings = context.read<SettingsProvider>();
+    final item = CustomizationCatalog.getById(_selectedCustomizationId);
+    final isUnlocked = gameState.isCustomizationUnlocked(item.id);
+    final isEquipped = gameState.isCustomizationEquipped(item.id);
+    final itemName = item.name(settings.isTurkish);
+
+    if (isEquipped) return;
+
+    if (isUnlocked) {
+      gameState.equipCustomization(item.id);
+      if (settings.vibrationEnabled) {
+        HapticService.mediumImpact();
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF101B2C),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: item.primaryColor.withValues(alpha: 0.4)),
+          ),
+          content: Text(
+            settings.strings.equippedCustomizationSnackbar(itemName),
+            style: GoogleFonts.inter(color: const Color(0xFFF0F7FF), fontSize: 13),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (gameState.totalStarDust < item.price) {
+      if (settings.vibrationEnabled) {
+        HapticService.heavyImpact();
+      }
+      final needed = item.price - gameState.totalStarDust;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF2A1520),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Color(0xFFFF5252), width: 1),
+          ),
+          content: Text(
+            settings.strings.needMoreDustSnackbar(itemName, needed),
+            style: GoogleFonts.inter(color: const Color(0xFFF0F7FF), fontSize: 13),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final success = gameState.unlockCustomization(item.id);
+    if (success) {
+      if (settings.vibrationEnabled) {
+        HapticService.heavyImpact();
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF101B2C),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: item.primaryColor, width: 1.5),
+          ),
+          content: Text(
+            settings.strings.unlockedCustomizationSnackbar(itemName),
+            style: GoogleFonts.orbitron(
+              color: item.primaryColor,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   void _onActionButtonPressed() {
@@ -176,6 +272,11 @@ class _HangarScreenState extends State<HangarScreen>
     final unlockedCount = gameState.unlockedPlanetIds.length;
     final totalDust = gameState.totalStarDust;
     final selectedIndex = FleetCatalog.worlds.indexWhere((w) => w.id == selectedPlanet.id);
+
+    final selectedCustom = CustomizationCatalog.getById(_selectedCustomizationId);
+    final isCustomUnlocked = gameState.isCustomizationUnlocked(selectedCustom.id);
+    final isCustomEquipped = gameState.isCustomizationEquipped(selectedCustom.id);
+    final unlockedCustomCount = gameState.unlockedCustomizationIds.length;
 
     return Scaffold(
       backgroundColor: const Color(0xFF050814),
@@ -314,161 +415,336 @@ class _HangarScreenState extends State<HangarScreen>
                   ),
                 ),
 
+                // ── Dual Tab Header (Worlds & Companions vs Customizations) ──
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Tab 0: Worlds & companions
+                          GestureDetector(
+                            key: const Key('hangar_worlds_tab'),
+                            onTap: () {
+                              if (_selectedTab != 0) {
+                                if (settings.vibrationEnabled) {
+                                  HapticService.selectionClick();
+                                }
+                                setState(() => _selectedTab = 0);
+                              }
+                            },
+                            behavior: HitTestBehavior.opaque,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  settings.strings.worldsAndCompanions,
+                                  style: GoogleFonts.inter(
+                                    color: _selectedTab == 0 ? const Color(0xFF8CEFFF) : const Color(0xFF7F91AB),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  width: _selectedTab == 0 ? 80 : 0,
+                                  height: 2,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF8CEFFF),
+                                    borderRadius: BorderRadius.circular(1),
+                                    boxShadow: _selectedTab == 0
+                                        ? const [
+                                            BoxShadow(
+                                              color: Color(0x808CEFFF),
+                                              blurRadius: 6,
+                                            ),
+                                          ]
+                                        : null,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 20),
+
+                          // Tab 1: Customizations (Özelleştirmeler)
+                          GestureDetector(
+                            key: const Key('hangar_customizations_tab'),
+                            onTap: () {
+                              if (_selectedTab != 1) {
+                                if (settings.vibrationEnabled) {
+                                  HapticService.selectionClick();
+                                }
+                                setState(() => _selectedTab = 1);
+                              }
+                            },
+                            behavior: HitTestBehavior.opaque,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  settings.strings.customizationsTab,
+                                  style: GoogleFonts.inter(
+                                    color: _selectedTab == 1 ? const Color(0xFF8CEFFF) : const Color(0xFF7F91AB),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  width: _selectedTab == 1 ? 80 : 0,
+                                  height: 2,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF8CEFFF),
+                                    borderRadius: BorderRadius.circular(1),
+                                    boxShadow: _selectedTab == 1
+                                        ? const [
+                                            BoxShadow(
+                                              color: Color(0x808CEFFF),
+                                              blurRadius: 6,
+                                            ),
+                                          ]
+                                        : null,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      // Unlocked counter pill
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF101B2C),
+                          borderRadius: BorderRadius.circular(100),
+                          border: Border.all(
+                            color: const Color(0x268CEFFF),
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          _selectedTab == 0
+                              ? '$unlockedCount / ${FleetCatalog.worlds.length} UNLOCKED'
+                              : '$unlockedCustomCount / ${CustomizationCatalog.items.length} UNLOCKED',
+                          style: GoogleFonts.orbitron(
+                            color: const Color(0xFF8CEFFF),
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 4),
+
                 // ── Centered Main Content ──
                 Expanded(
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 390),
-                      child: SingleChildScrollView(
-                        physics: const BouncingScrollPhysics(),
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            // 1. Featured World Card (Real Planet Image + Companion Orbit)
-                            _FeaturedWorldCard(
-                              planet: selectedPlanet,
-                              index: selectedIndex >= 0 ? selectedIndex + 1 : 1,
-                              clock: _clock,
-                            ),
-                            const SizedBox(height: 16),
+                      child: _selectedTab == 0
+                          ? SingleChildScrollView(
+                              physics: const BouncingScrollPhysics(),
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  // 1. Featured World Card (Real Planet Image + Companion Orbit)
+                                  _FeaturedWorldCard(
+                                    planet: selectedPlanet,
+                                    index: selectedIndex >= 0 ? selectedIndex + 1 : 1,
+                                    clock: _clock,
+                                  ),
+                                  const SizedBox(height: 14),
 
-                            // 2. Section Header: Worlds & Companions / Fleet unlocked pill
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
+                                  // 2. Section Header: Worlds & Companions / Subtitle
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
-                                      Text(
-                                        settings.strings.worldsAndCompanions,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.inter(
-                                          color: const Color(0xFFF0F7FF),
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w700,
-                                          letterSpacing: 0.5,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        settings.strings.yourCosmicFleet,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.inter(
-                                          color: const Color(0xFF7F91AB),
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w400,
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              settings.strings.yourCosmicFleet,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: GoogleFonts.inter(
+                                                color: const Color(0xFFF0F7FF),
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w700,
+                                                letterSpacing: 0.5,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              settings.strings.unlockedWorlds(unlockedCount, FleetCatalog.worlds.length),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: GoogleFonts.inter(
+                                                color: const Color(0xFF7F91AB),
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w400,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ],
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF101B2C),
-                                    borderRadius: BorderRadius.circular(100),
-                                    border: Border.all(
-                                      color: const Color(0x268CEFFF),
-                                      width: 1,
+                                  const SizedBox(height: 10),
+
+                                  // 3. Carousel of Planet Cards (12 items)
+                                  SizedBox(
+                                    height: 130,
+                                    child: ListView.separated(
+                                      controller: _carouselController,
+                                      scrollDirection: Axis.horizontal,
+                                      itemCount: FleetCatalog.worlds.length,
+                                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                                      itemBuilder: (context, index) {
+                                        final world = FleetCatalog.worlds[index];
+                                        final isItemUnlocked = gameState.isUnlocked(world.id);
+                                        final isItemEquipped = gameState.isEquipped(world.id);
+                                        final isItemSelected = world.id == _selectedPlanetId;
+
+                                        return _PlanetCatalogCard(
+                                          world: world,
+                                          isUnlocked: isItemUnlocked,
+                                          isEquipped: isItemEquipped,
+                                          isSelected: isItemSelected,
+                                          strings: settings.strings,
+                                          onTap: () => _onSelectPlanet(world.id),
+                                          onEquip: () {
+                                            gameState.equipPlanet(world.id);
+                                            setState(() => _selectedPlanetId = world.id);
+                                          },
+                                        );
+                                      },
                                     ),
                                   ),
-                                  child: Text(
-                                    '$unlockedCount / ${FleetCatalog.worlds.length} UNLOCKED',
-                                    style: GoogleFonts.orbitron(
-                                      color: const Color(0xFF8CEFFF),
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.8,
-                                    ),
+                                  const SizedBox(height: 10),
+
+                                  // 4. Carousel Indicator Dots
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: List.generate(4, (i) {
+                                      final isActive = (selectedIndex ~/ 3) == i;
+                                      return AnimatedContainer(
+                                        duration: const Duration(milliseconds: 250),
+                                        margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                                        width: isActive ? 22 : 5,
+                                        height: 3,
+                                        decoration: ShapeDecoration(
+                                          color: isActive
+                                              ? const Color(0xFF8CEFFF)
+                                              : const Color(0xFF24364E),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(2),
+                                          ),
+                                        ),
+                                      );
+                                    }),
+                                  ),
+                                  const SizedBox(height: 12),
+
+                                  // 5. Active Fleet Bundle Capsule
+                                  _BundleInfoCapsule(
+                                    planet: selectedPlanet,
+                                    isUnlocked: isUnlocked,
+                                    strings: settings.strings,
+                                  ),
+                                  const SizedBox(height: 14),
+
+                                  // 6. Primary Action CTA Button (Unlock / Equip / Equipped)
+                                  _ActionButton(
+                                    planet: selectedPlanet,
+                                    isUnlocked: isUnlocked,
+                                    isEquipped: isEquipped,
+                                    totalDust: totalDust,
+                                    strings: settings.strings,
+                                    onPressed: _onActionButtonPressed,
+                                  ),
+                                  const SizedBox(height: 8),
+                                ],
+                              ),
+                            )
+                          : Column(
+                              children: [
+                                Expanded(
+                                  child: ListView(
+                                    physics: const BouncingScrollPhysics(),
+                                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                                    children: [
+                                      // 1. Customization Showcase Preview Card
+                                      _CustomizationShowcaseCard(
+                                        customization: selectedCustom,
+                                        planet: gameState.equippedPlanet,
+                                        clock: _clock,
+                                        isTurkish: settings.isTurkish,
+                                        isEquipped: isCustomEquipped,
+                                      ),
+                                      const SizedBox(height: 14),
+
+                                      // 2. Customizations List
+                                      ...CustomizationCatalog.items.map((item) {
+                                        final isItemUnlocked = gameState.isCustomizationUnlocked(item.id);
+                                        final isItemEquipped = gameState.isCustomizationEquipped(item.id);
+                                        final isItemSelected = item.id == _selectedCustomizationId;
+
+                                        return Padding(
+                                          padding: const EdgeInsets.only(bottom: 8),
+                                          child: _CustomizationListCard(
+                                            key: ValueKey('custom_'),
+                                            customization: item,
+                                            isUnlocked: isItemUnlocked,
+                                            isEquipped: isItemEquipped,
+                                            isSelected: isItemSelected,
+                                            isTurkish: settings.isTurkish,
+                                            strings: settings.strings,
+                                            onTap: () => _onSelectCustomization(item.id),
+                                            onEquip: () {
+                                              gameState.equipCustomization(item.id);
+                                              setState(() => _selectedCustomizationId = item.id);
+                                            },
+                                          ),
+                                        );
+                                      }),
+                                      const SizedBox(height: 8),
+                                    ],
+                                  ),
+                                ),
+
+                                // 3. Customization Action CTA Button (Pinned Bottom)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                                  child: _CustomizationActionButton(
+                                    customization: selectedCustom,
+                                    isUnlocked: isCustomUnlocked,
+                                    isEquipped: isCustomEquipped,
+                                    isTurkish: settings.isTurkish,
+                                    currentDust: totalDust,
+                                    strings: settings.strings,
+                                    onPressed: _onCustomizationActionPressed,
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 12),
-
-                            // 3. Carousel of Planet Cards (12 items)
-                            SizedBox(
-                              height: 130,
-                              child: ListView.separated(
-                                controller: _carouselController,
-                                scrollDirection: Axis.horizontal,
-                                itemCount: FleetCatalog.worlds.length,
-                                separatorBuilder: (_, _) => const SizedBox(width: 8),
-                                itemBuilder: (context, index) {
-                                  final world = FleetCatalog.worlds[index];
-                                  final isItemUnlocked = gameState.isUnlocked(world.id);
-                                  final isItemEquipped = gameState.isEquipped(world.id);
-                                  final isItemSelected = world.id == _selectedPlanetId;
-
-                                  return _PlanetCatalogCard(
-                                    world: world,
-                                    isUnlocked: isItemUnlocked,
-                                    isEquipped: isItemEquipped,
-                                    isSelected: isItemSelected,
-                                    strings: settings.strings,
-                                    onTap: () => _onSelectPlanet(world.id),
-                                    onEquip: () {
-                                      gameState.equipPlanet(world.id);
-                                      setState(() => _selectedPlanetId = world.id);
-                                    },
-                                  );
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-
-                            // 4. Carousel Indicator Dots
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: List.generate(4, (i) {
-                                final isActive = (selectedIndex ~/ 3) == i;
-                                return AnimatedContainer(
-                                  duration: const Duration(milliseconds: 250),
-                                  margin: const EdgeInsets.symmetric(horizontal: 2.5),
-                                  width: isActive ? 22 : 5,
-                                  height: 3,
-                                  decoration: ShapeDecoration(
-                                    color: isActive
-                                        ? const Color(0xFF8CEFFF)
-                                        : const Color(0xFF24364E),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(2),
-                                    ),
-                                  ),
-                                );
-                              }),
-                            ),
-                            const SizedBox(height: 12),
-
-                            // 5. Active Fleet Bundle Capsule
-                            _BundleInfoCapsule(
-                              planet: selectedPlanet,
-                              isUnlocked: isUnlocked,
-                              strings: settings.strings,
-                            ),
-                            const SizedBox(height: 16),
-
-                            // 6. Primary Action CTA Button (Unlock / Equip / Equipped)
-                            _ActionButton(
-                              planet: selectedPlanet,
-                              isUnlocked: isUnlocked,
-                              isEquipped: isEquipped,
-                              totalDust: totalDust,
-                              strings: settings.strings,
-                              onPressed: _onActionButtonPressed,
-                            ),
-                            const SizedBox(height: 8),
-                          ],
-                        ),
-                      ),
                     ),
                   ),
                 ),
@@ -1321,6 +1597,668 @@ class _ActionButton extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             FigmaIcon.arrowRight(size: 16, color: const Color(0xFF071722)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Sub-components: Customization Showcase & List (Tab 1)
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _CustomizationShowcaseCard extends StatelessWidget {
+  final CosmicCustomization customization;
+  final FleetPlanet planet;
+  final Animation<double> clock;
+  final bool isTurkish;
+  final bool isEquipped;
+
+  const _CustomizationShowcaseCard({
+    required this.customization,
+    required this.planet,
+    required this.clock,
+    required this.isTurkish,
+    required this.isEquipped,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 342,
+      height: 200,
+      decoration: BoxDecoration(
+        color: const Color(0xD90C1626),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: customization.primaryColor.withValues(alpha: 0.35),
+          width: 1.4,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: customization.primaryColor.withValues(alpha: 0.14),
+            blurRadius: 28,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: Stack(
+        clipBehavior: Clip.antiAlias,
+        children: [
+          // Background subtle canvas
+          Positioned.fill(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(22),
+              child: CustomPaint(
+                painter: _CustomizationPreviewPainter(
+                  clock: clock,
+                  customization: customization,
+                ),
+              ),
+            ),
+          ),
+
+          // Central planet thumbnail for scale context
+          Center(
+            child: Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: planet.glowColor.withValues(alpha: 0.4),
+                    blurRadius: 18,
+                  ),
+                ],
+              ),
+              child: ClipOval(
+                child: Image.asset(
+                  planet.assetPath,
+                  fit: BoxFit.cover,
+                  cacheWidth: 120,
+                  gaplessPlayback: true,
+                ),
+              ),
+            ),
+          ),
+
+          // Top badges
+          Positioned(
+            left: 18,
+            top: 18,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: customization.primaryColor.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: customization.primaryColor.withValues(alpha: 0.45),
+                ),
+              ),
+              child: Text(
+                customization.tag(isTurkish),
+                style: GoogleFonts.orbitron(
+                  color: customization.primaryColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ),
+          ),
+
+          if (isEquipped)
+            Positioned(
+              right: 18,
+              top: 18,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF34D399).withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: const Color(0xFF34D399),
+                    width: 1.2,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.check, size: 12, color: Color(0xFF34D399)),
+                    const SizedBox(width: 4),
+                    Text(
+                      'ACTIVE',
+                      style: GoogleFonts.orbitron(
+                        color: const Color(0xFF34D399),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // Bottom Info
+          Positioned(
+            left: 20,
+            right: 20,
+            bottom: 18,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  customization.name(isTurkish),
+                  style: GoogleFonts.orbitron(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  customization.subtitle(isTurkish),
+                  style: GoogleFonts.inter(
+                    color: customization.secondaryColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  customization.description(isTurkish),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    color: const Color(0xFF9BACCA),
+                    fontSize: 11,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomizationPreviewPainter extends CustomPainter {
+  final Animation<double> clock;
+  final CosmicCustomization customization;
+
+  _CustomizationPreviewPainter({
+    required this.clock,
+    required this.customization,
+  }) : super(repaint: clock);
+
+  final Paint _stroke = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round;
+  final Paint _fill = Paint()..style = PaintingStyle.fill;
+  final Path _path = Path();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    const radius = 78.0;
+    final primary = customization.primaryColor;
+    final secondary = customization.secondaryColor;
+
+    // Orbit ring
+    _stroke.strokeWidth = 1.0;
+    _stroke.color = primary.withValues(alpha: 0.28);
+    canvas.drawCircle(center, radius, _stroke);
+
+    final angle = clock.value * 4 * pi;
+    final vesselPos = center + Offset(cos(angle), sin(angle)) * radius;
+
+    // Periodic launch shockwave every 2.5 seconds at top of orbit
+    final waveCycle = (clock.value * 12) % 1.0;
+    final waveRadius = waveCycle * 95.0;
+    final waveAlpha = (1.0 - waveCycle).clamp(0.0, 1.0);
+
+    if (waveRadius > 4) {
+      switch (customization.style) {
+        case CustomizationStyle.classic:
+          _stroke.strokeWidth = 2.0;
+          _stroke.color = primary.withValues(alpha: waveAlpha * 0.7);
+          canvas.drawCircle(center, waveRadius, _stroke);
+          break;
+
+        case CustomizationStyle.sparkle:
+          _stroke.strokeWidth = 1.8;
+          _stroke.color = primary.withValues(alpha: waveAlpha * 0.75);
+          canvas.drawCircle(center, waveRadius, _stroke);
+          // 4 corner sparkles
+          for (int s = 0; s < 4; s++) {
+            final sparkA = s * pi / 2 + waveCycle * 2;
+            final sparkOffset = center + Offset(cos(sparkA), sin(sparkA)) * waveRadius;
+            _fill.color = secondary.withValues(alpha: waveAlpha * 0.9);
+            canvas.drawCircle(sparkOffset, 2.5 * waveAlpha, _fill);
+          }
+          break;
+
+        case CustomizationStyle.dualIon:
+          _stroke.strokeWidth = 1.6;
+          _stroke.color = primary.withValues(alpha: waveAlpha * 0.8);
+          canvas.drawCircle(center, waveRadius, _stroke);
+          _stroke.strokeWidth = 1.0;
+          _stroke.color = secondary.withValues(alpha: waveAlpha * 0.5);
+          canvas.drawCircle(center, waveRadius * 0.82, _stroke);
+          break;
+
+        case CustomizationStyle.cyberGlitch:
+          _stroke.strokeWidth = 1.8;
+          _stroke.color = primary.withValues(alpha: waveAlpha * 0.85);
+          _path.reset();
+          for (int i = 0; i < 8; i++) {
+            final a = (i * pi / 4) + (waveCycle * 0.5);
+            final p = center + Offset(cos(a), sin(a)) * waveRadius;
+            if (i == 0) {
+              _path.moveTo(p.dx, p.dy);
+            } else {
+              _path.lineTo(p.dx, p.dy);
+            }
+          }
+          _path.close();
+          canvas.drawPath(_path, _stroke);
+          break;
+      }
+    }
+
+    // Orbiting Vessel Trail
+    const trailCount = 14;
+    for (int i = 0; i < trailCount; i++) {
+      final trailFrac = i / trailCount;
+      final trailAngle = angle - (i * 0.08);
+      final trailPos = center + Offset(cos(trailAngle), sin(trailAngle)) * radius;
+      final alpha = (1.0 - trailFrac) * 0.8;
+
+      switch (customization.style) {
+        case CustomizationStyle.classic:
+          _fill.color = primary.withValues(alpha: alpha);
+          canvas.drawCircle(trailPos, 3.5 * (1.0 - trailFrac * 0.6), _fill);
+          break;
+
+        case CustomizationStyle.sparkle:
+          _fill.color = (i % 2 == 0 ? primary : secondary).withValues(alpha: alpha);
+          if (i % 3 == 0) {
+            // Star diamond
+            final d = 3.2 * (1.0 - trailFrac * 0.5);
+            _path.reset();
+            _path.moveTo(trailPos.dx, trailPos.dy - d);
+            _path.lineTo(trailPos.dx + d, trailPos.dy);
+            _path.lineTo(trailPos.dx, trailPos.dy + d);
+            _path.lineTo(trailPos.dx - d, trailPos.dy);
+            _path.close();
+            canvas.drawPath(_path, _fill);
+          } else {
+            canvas.drawCircle(trailPos, 2.4 * (1.0 - trailFrac), _fill);
+          }
+          break;
+
+        case CustomizationStyle.dualIon:
+          final perp = Offset(-sin(trailAngle), cos(trailAngle));
+          final p1 = trailPos + perp * 3.5;
+          final p2 = trailPos - perp * 3.5;
+          _fill.color = primary.withValues(alpha: alpha);
+          canvas.drawCircle(p1, 2.2 * (1.0 - trailFrac * 0.5), _fill);
+          _fill.color = secondary.withValues(alpha: alpha);
+          canvas.drawCircle(p2, 2.2 * (1.0 - trailFrac * 0.5), _fill);
+          break;
+
+        case CustomizationStyle.cyberGlitch:
+          _fill.color = (i % 2 == 0 ? primary : secondary).withValues(alpha: alpha);
+          final sqSize = 4.2 * (1.0 - trailFrac * 0.5);
+          canvas.drawRect(
+            Rect.fromCenter(center: trailPos, width: sqSize, height: sqSize),
+            _fill,
+          );
+          break;
+      }
+    }
+
+    // Vessel Body
+    _fill.color = Colors.white;
+    canvas.drawCircle(vesselPos, 4.5, _fill);
+    _stroke.strokeWidth = 1.5;
+    _stroke.color = primary;
+    canvas.drawCircle(vesselPos, 4.5, _stroke);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CustomizationPreviewPainter oldDelegate) => true;
+}
+
+class _CustomizationListCard extends StatelessWidget {
+  final CosmicCustomization customization;
+  final bool isUnlocked;
+  final bool isEquipped;
+  final bool isSelected;
+  final bool isTurkish;
+  final AppStrings strings;
+  final VoidCallback onTap;
+  final VoidCallback onEquip;
+
+  const _CustomizationListCard({
+    super.key,
+    required this.customization,
+    required this.isUnlocked,
+    required this.isEquipped,
+    required this.isSelected,
+    required this.isTurkish,
+    required this.strings,
+    required this.onTap,
+    required this.onEquip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final IconData iconData = switch (customization.style) {
+      CustomizationStyle.classic => Icons.auto_awesome_motion_rounded,
+      CustomizationStyle.sparkle => Icons.auto_awesome_rounded,
+      CustomizationStyle.dualIon => Icons.bolt_rounded,
+      CustomizationStyle.cyberGlitch => Icons.grid_view_rounded,
+    };
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? customization.primaryColor.withValues(alpha: 0.12)
+              : const Color(0xD90C1626),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected
+                ? customization.primaryColor
+                : const Color(0x268CEFFF),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: customization.primaryColor.withValues(alpha: 0.20),
+                    blurRadius: 16,
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          children: [
+            // Icon glyph
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: customization.primaryColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: customization.primaryColor.withValues(alpha: 0.4),
+                ),
+              ),
+              child: Icon(iconData, color: customization.primaryColor, size: 22),
+            ),
+            const SizedBox(width: 14),
+
+            // Name + Subtitle
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          customization.name(isTurkish),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.orbitron(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: customization.primaryColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          customization.tag(isTurkish),
+                          style: GoogleFonts.inter(
+                            color: customization.primaryColor,
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    customization.subtitle(isTurkish),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFF7F91AB),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Trailing action / badge
+            if (isEquipped)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF34D399).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF34D399), width: 1.0),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.check, size: 12, color: Color(0xFF34D399)),
+                    const SizedBox(width: 4),
+                    Text(
+                      strings.equippedBadge,
+                      style: GoogleFonts.orbitron(
+                        color: const Color(0xFF34D399),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (isUnlocked)
+              GestureDetector(
+                onTap: onEquip,
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: customization.primaryColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: customization.primaryColor, width: 1.2),
+                  ),
+                  child: Text(
+                    strings.equip,
+                    style: GoogleFonts.orbitron(
+                      color: customization.primaryColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0x60101B2C),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0x208CEFFF),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FigmaIcon.lock(size: 13, color: const Color(0xFF7F91AB)),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${customization.price}',
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomizationActionButton extends StatelessWidget {
+  final CosmicCustomization customization;
+  final bool isUnlocked;
+  final bool isEquipped;
+  final bool isTurkish;
+  final int currentDust;
+  final AppStrings strings;
+  final VoidCallback onPressed;
+
+  const _CustomizationActionButton({
+    required this.customization,
+    required this.isUnlocked,
+    required this.isEquipped,
+    required this.isTurkish,
+    required this.currentDust,
+    required this.strings,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (isEquipped) {
+      return Container(
+        height: 52,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: const Color(0x1A34D399),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: const Color(0xFF34D399),
+            width: 1.2,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.check_circle_outline, color: Color(0xFF34D399), size: 18),
+            const SizedBox(width: 8),
+            Text(
+              strings.equippedCustomizationButton,
+              style: GoogleFonts.orbitron(
+                color: const Color(0xFF34D399),
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.5,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (isUnlocked) {
+      return GestureDetector(
+        onTap: onPressed,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          height: 52,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: customization.primaryColor.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: customization.primaryColor,
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: customization.primaryColor.withValues(alpha: 0.3),
+                blurRadius: 18,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+          child: Text(
+            strings.equipPlanetButton(customization.name(isTurkish).toUpperCase()),
+            style: GoogleFonts.orbitron(
+              color: customization.primaryColor,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.5,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final canAfford = currentDust >= customization.price;
+    return GestureDetector(
+      onTap: onPressed,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 52,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: canAfford ? customization.primaryColor : const Color(0x60101B2C),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: canAfford ? customization.primaryColor : const Color(0x308CEFFF),
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              strings.unlockPlanetButton(customization.price),
+              style: GoogleFonts.orbitron(
+                color: canAfford ? const Color(0xFF050814) : const Color(0xFF7F91AB),
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.2,
+              ),
+            ),
+            const SizedBox(width: 8),
+            FigmaIcon.stardust(
+              size: 16,
+              color: canAfford ? const Color(0xFF050814) : const Color(0xFF7F91AB),
+            ),
           ],
         ),
       ),

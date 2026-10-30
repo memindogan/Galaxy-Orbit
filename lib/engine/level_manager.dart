@@ -16,6 +16,8 @@ class EndlessManager {
   int planetCounter = 0;
   FleetPlanet startingPlanet;
   FleetPlanet? lastPlanet;
+  bool _lastHadPowerUp = false;
+  bool _lastHadHazard = false;
 
   EndlessManager({
     required this.screenWidth,
@@ -32,6 +34,8 @@ class EndlessManager {
     planetCounter = 0;
     nextY = screenHeight * 0.7;
     lastPlanet = null;
+    _lastHadPowerUp = false;
+    _lastHadHazard = false;
     final planets = <Planet>[];
     for (int i = 0; i < 5; i++) {
       planets.add(generateNextPlanet());
@@ -205,6 +209,29 @@ class EndlessManager {
     }
     lastPlanet = world;
 
+    // 6. Orbit-Entry Power-Ups (Introduced from planet 4+, never on consecutive planets)
+    OrbitPowerUpType? powerUp;
+    double powerUpAngle = -pi * 0.5;
+    if (planetCounter >= 4 && !_lastHadPowerUp && rng.nextDouble() < 0.22) {
+      const types = OrbitPowerUpType.values;
+      powerUp = types[rng.nextInt(types.length)];
+      powerUpAngle = -pi * 0.5 + (rng.nextDouble() - 0.5) * 0.4;
+      _lastHadPowerUp = true;
+    } else {
+      _lastHadPowerUp = false;
+    }
+
+    // 7. Rare Hazard Shields (Strictly Level 7+ -> planetCounter >= 35, very rare 14% chance, never consecutive)
+    bool hasHazard = false;
+    double hazardAngle = -pi * 0.65;
+    if (planetCounter >= 35 && !_lastHadHazard && rng.nextDouble() < 0.14) {
+      hasHazard = true;
+      hazardAngle = -pi * 0.65 + (rng.nextDouble() - 0.5) * 0.3;
+      _lastHadHazard = true;
+    } else {
+      _lastHadHazard = false;
+    }
+
     return Planet(
       x: centerX,
       y: centerY,
@@ -215,6 +242,10 @@ class EndlessManager {
       moveAmplitude: moveAmplitude,
       moveSpeed: moveSpeed,
       fleetPlanet: world,
+      powerUp: powerUp,
+      powerUpAngle: powerUpAngle,
+      hasHazard: hasHazard,
+      hazardAngle: hazardAngle,
     );
   }
 }

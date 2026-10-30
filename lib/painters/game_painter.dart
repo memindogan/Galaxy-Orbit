@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/theme_constants.dart';
 import '../engine/game_engine.dart';
+import '../models/cosmic_customization.dart';
 import '../models/fleet_planet.dart';
 import '../models/planet.dart';
 import '../models/player_dot.dart';
@@ -88,6 +89,7 @@ class GamePainter extends CustomPainter {
   final bool reducedMotion;
   final bool isTurkish;
   final FleetPlanet equippedPlanet;
+  final CosmicCustomization equippedCustomization;
   final Map<String, ui.Image>? planetImages;
 
   // ─── Pre-allocated static resources ────────────────────────────────────────
@@ -236,14 +238,19 @@ class GamePainter extends CustomPainter {
 
   final Path _trailPath = Path();
 
-  final Paint _vesselFill = Paint()..style = PaintingStyle.fill;
-  final Paint _vesselStroke = Paint()..style = PaintingStyle.stroke;
-  final Path _vesselPath = Path();
-  final Path _vesselPath2 = Path();
+  static final Paint _vesselFill = Paint()..style = PaintingStyle.fill;
+  static final Paint _vesselStroke = Paint()..style = PaintingStyle.stroke;
+  static final Path _vesselPath = Path();
+  static final Path _vesselPath2 = Path();
 
   final Paint _procFill = Paint()..style = PaintingStyle.fill;
   final Paint _procStroke = Paint()..style = PaintingStyle.stroke;
   final Path _procPath = Path();
+  final Paint _fxStroke = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round;
+  final Paint _fxFill = Paint()..style = PaintingStyle.fill;
+  final Path _fxPath = Path();
 
   GamePainter({
     required this.engine,
@@ -252,9 +259,11 @@ class GamePainter extends CustomPainter {
     this.reducedMotion = false,
     this.isTurkish = false,
     FleetPlanet? equippedPlanet,
+    CosmicCustomization? equippedCustomization,
     this.planetImages,
     super.repaint,
-  })  : equippedPlanet = equippedPlanet ?? FleetCatalog.worlds.first;
+  })  : equippedPlanet = equippedPlanet ?? FleetCatalog.worlds.first,
+        equippedCustomization = equippedCustomization ?? CustomizationCatalog.items.first;
 
   Color get _playerColor =>
       colorBlindMode ? const Color(0xFFFFD600) : equippedPlanet.companionColor;
@@ -267,11 +276,51 @@ class GamePainter extends CustomPainter {
     // ── Cosmic Nebula Glow ──────────────────────────────────────────────────
     _drawNebula(canvas, size);
 
-    // ── Parallax Stars ──────────────────────────────────────────────────────
-    _drawParallaxStars(canvas, size);
+    // ── Parallax Stars (with 45% depth-linked FOV zoom) ─────────────────────
+    final zoom = engine.cameraZoom;
+    final hasZoom = !reducedMotion && (zoom - 1.0).abs() > 0.001;
+    if (hasZoom) {
+      final starZoom = 1.0 + (zoom - 1.0) * 0.45;
+      final scx = size.width * 0.5;
+      final scy = size.height * 0.5;
+      canvas.save();
+      canvas.translate(scx, scy);
+      canvas.scale(starZoom);
+      canvas.translate(-scx, -scy);
+      _drawParallaxStars(canvas, size);
+      canvas.restore();
+    } else {
+      _drawParallaxStars(canvas, size);
+    }
 
-    // ── Camera Transform ────────────────────────────────────────────────────
+    // ── Screen-Space Combo & Overdrive Speed Lines ──────────────────────────
+    if (!reducedMotion && (engine.combo >= 2 || engine.overdriveCharges > 0)) {
+      _drawSpeedLines(canvas, size);
+    }
+
+    // ── Camera Transform (Dynamic FOV Zoom + Tactile Micro-Shake) ───────────
     canvas.save();
+    if (!reducedMotion) {
+      if (hasZoom) {
+        double focalX = size.width * 0.5;
+        double focalY = size.height * 0.65;
+        if (engine.planets.isNotEmpty &&
+            engine.currentPlanetIndex >= 0 &&
+            engine.currentPlanetIndex < engine.planets.length) {
+          final activePlanet = engine.planets[engine.currentPlanetIndex];
+          final rawX = engine.player.isOrbiting ? activePlanet.x : engine.player.x;
+          final rawY = (engine.player.isOrbiting ? activePlanet.y : engine.player.y) - engine.cameraY;
+          focalX = rawX.clamp(size.width * 0.2, size.width * 0.8);
+          focalY = rawY.clamp(size.height * 0.25, size.height * 0.82);
+        }
+        canvas.translate(focalX, focalY);
+        canvas.scale(zoom);
+        canvas.translate(-focalX, -focalY);
+      }
+      if (engine.shakeTimer > 0) {
+        canvas.translate(engine.shakeOffsetX, engine.shakeOffsetY);
+      }
+    }
     canvas.translate(0, -engine.cameraY);
 
     if (engine.planets.isEmpty) {
@@ -286,8 +335,8 @@ class GamePainter extends CustomPainter {
     _drawAimGuidance(canvas);
 
     // ── Draw Planets with Frustum Culling ────────────────────────────────────
-    final screenTop = engine.cameraY - 180.0;
-    final screenBottom = engine.cameraY + size.height + 180.0;
+    final screenTop = engine.cameraY - 220.0;
+    final screenBottom = engine.cameraY + size.height + 220.0;
     for (int i = 0; i < planets.length; i++) {
       final p = planets[i];
       if (p.y + p.radius < screenTop || p.y - p.radius > screenBottom) {
@@ -295,6 +344,9 @@ class GamePainter extends CustomPainter {
       }
       _drawPlanet(canvas, p, i);
     }
+
+    // ── Draw Launch Shockwaves & Catch Ripples ──────────────────────────────
+    _drawShockwaves(canvas);
 
     // ── Draw Satellite Exhaust Trail ────────────────────────────────────────
     _drawTrail(canvas, player);
@@ -559,6 +611,285 @@ class GamePainter extends CustomPainter {
       false,
       _rimPaint,
     );
+
+    // ── Gravity Well Expanded Capture Boundary (when active on target) ──
+    if (isTarget && engine.gravityWellCharges > 0) {
+      final pulse = reducedMotion ? 0.5 : (0.5 + 0.5 * sin(engine.totalElapsed * 6.0));
+      _fxStroke.strokeWidth = 1.4;
+      _fxStroke.color = const Color(0xFFC084FC).withValues(alpha: 0.28 + 0.22 * pulse);
+      canvas.drawCircle(center, planet.radius + engine.effectiveCatchRadius * 0.65, _fxStroke);
+    }
+
+    // ── Rotating Hazard Shield Arc & Shatter Effect (Level 7+) ──
+    if (planet.hasHazard || planet.hazardShatterTimer > 0) {
+      _drawPlanetHazard(canvas, center, planet);
+    }
+
+    // ── Orbit-Entry Power-Up Icon & Miss-Vanish Effect ──
+    if (planet.powerUp != null || planet.powerUpVanishTimer > 0) {
+      _drawPlanetPowerUp(canvas, center, planet);
+    }
+  }
+
+  // ─── Rotating Hazard Barrier & Shatter Animation (Level 7+) ───────────────
+  void _drawPlanetHazard(Canvas canvas, Offset center, Planet planet) {
+    final barrierRadius = planet.radius + 5.5;
+    final hazardColor = colorBlindMode ? const Color(0xFFFF1744) : const Color(0xFFFF453A);
+
+    if (planet.hasHazard) {
+      final arcRect = Rect.fromCircle(center: center, radius: barrierRadius);
+      // Outer warning glow
+      _fxStroke.strokeWidth = 6.5;
+      _fxStroke.color = hazardColor.withValues(alpha: 0.28);
+      canvas.drawArc(arcRect, planet.hazardAngle, planet.hazardSweep, false, _fxStroke);
+
+      // Core plasma laser arc
+      _fxStroke.strokeWidth = 2.6;
+      _fxStroke.color = hazardColor;
+      canvas.drawArc(arcRect, planet.hazardAngle, planet.hazardSweep, false, _fxStroke);
+
+      // End-cap nodes on the arc barrier
+      final startX = center.dx + cos(planet.hazardAngle) * barrierRadius;
+      final startY = center.dy + sin(planet.hazardAngle) * barrierRadius;
+      final endAngle = planet.hazardAngle + planet.hazardSweep;
+      final endX = center.dx + cos(endAngle) * barrierRadius;
+      final endY = center.dy + sin(endAngle) * barrierRadius;
+      _fxFill.color = Colors.white;
+      canvas.drawCircle(Offset(startX, startY), 2.8, _fxFill);
+      canvas.drawCircle(Offset(endX, endY), 2.8, _fxFill);
+    } else if (planet.hazardShatterTimer > 0) {
+      // Shattering barrier fragments when broken by Aegis Shield
+      final t = (1.0 - (planet.hazardShatterTimer / 0.55)).clamp(0.0, 1.0);
+      final expandR = barrierRadius + t * 26.0;
+      final alpha = (1.0 - t).clamp(0.0, 1.0);
+      _fxStroke.strokeWidth = 2.4 * alpha;
+      _fxStroke.color = const Color(0xFF34D399).withValues(alpha: alpha);
+      final segSweep = planet.hazardSweep / 5.0;
+      final rect = Rect.fromCircle(center: center, radius: expandR);
+      for (int s = 0; s < 5; s++) {
+        final a = planet.hazardAngle + s * (segSweep + 0.08 * t);
+        canvas.drawArc(rect, a, segSweep * (1.0 - 0.5 * t), false, _fxStroke);
+      }
+    }
+  }
+
+  // ─── Orbiting Power-Up & Vanish Dissolve Effect (1:1 Concept Sheet Icons) ──
+  void _drawPlanetPowerUp(Canvas canvas, Offset center, Planet planet) {
+    if (planet.powerUp != null) {
+      final type = planet.powerUp!;
+      final angle = planet.powerUpAngle;
+      final px = center.dx + cos(angle) * planet.radius;
+      final py = center.dy + sin(angle) * planet.radius;
+      final pos = Offset(px, py);
+
+      final Color color = switch (type) {
+        OrbitPowerUpType.aegisShield => const Color(0xFF00F0FF),
+        OrbitPowerUpType.gravityWell => const Color(0xFFB388FF),
+        OrbitPowerUpType.chronoWarp => const Color(0xFF00E676),
+        OrbitPowerUpType.overdriveSurge => const Color(0xFFFFD600),
+        OrbitPowerUpType.quantumLeap => const Color(0xFFFF4081),
+      };
+
+      final pulse = reducedMotion ? 1.0 : (0.92 + 0.12 * sin(engine.totalElapsed * 7.0));
+      // Outer glassmorphic aura
+      _fxFill.color = color.withValues(alpha: 0.24);
+      canvas.drawCircle(pos, 13.0 * pulse, _fxFill);
+
+      // Dark glassmorphic circular badge
+      _fxFill.color = const Color(0xEB071022);
+      canvas.drawCircle(pos, 9.8, _fxFill);
+
+      // Glowing neon rim
+      _fxStroke.strokeWidth = 1.3;
+      _fxStroke.color = color.withValues(alpha: 0.90);
+      canvas.drawCircle(pos, 9.8 * pulse, _fxStroke);
+
+      canvas.save();
+      canvas.translate(px, py);
+      drawPowerUpGlyph(canvas, type, color, 6.2, _fxFill, _fxStroke, _fxPath);
+      canvas.restore();
+    } else if (planet.powerUpVanishTimer > 0) {
+      // Missed on orbit entry -> dissolving particle burst!
+      final t = (1.0 - (planet.powerUpVanishTimer / 0.45)).clamp(0.0, 1.0);
+      final alpha = (1.0 - t).clamp(0.0, 1.0);
+      final angle = planet.vanishedPowerUpAngle;
+      final px = center.dx + cos(angle) * planet.radius;
+      final py = center.dy + sin(angle) * planet.radius;
+      _fxFill.color = Colors.white.withValues(alpha: alpha * 0.8);
+      for (int i = 0; i < 6; i++) {
+        final a = i * (pi / 3.0) + t * 1.2;
+        final dist = 4.0 + t * 16.0;
+        canvas.drawCircle(
+          Offset(px + cos(a) * dist, py + sin(a) * dist),
+          2.2 * alpha,
+          _fxFill,
+        );
+      }
+    }
+  }
+
+  /// Shared 1:1 vector renderer for the 5 Power-Up Mini Icons (used by Canvas & HUD Badges).
+  static void drawPowerUpGlyph(
+    Canvas canvas,
+    OrbitPowerUpType type,
+    Color color,
+    double r,
+    Paint fillPaint,
+    Paint strokePaint,
+    Path path,
+  ) {
+    strokePaint.color = color;
+    fillPaint.color = color;
+
+    switch (type) {
+      case OrbitPowerUpType.aegisShield:
+        // 1. Aegis Shield: Crest shield with honeycomb hex core + 4 corner deflection brackets
+        path.reset();
+        path.moveTo(0, -r * 0.85);
+        path.lineTo(r * 0.72, -r * 0.48);
+        path.lineTo(r * 0.58, r * 0.35);
+        path.lineTo(0, r * 0.88);
+        path.lineTo(-r * 0.58, r * 0.35);
+        path.lineTo(-r * 0.72, -r * 0.48);
+        path.close();
+        fillPaint.color = color.withValues(alpha: 0.25);
+        canvas.drawPath(path, fillPaint);
+        strokePaint.strokeWidth = r * 0.22;
+        canvas.drawPath(path, strokePaint);
+
+        // Inner hex cell
+        path.reset();
+        for (int i = 0; i < 6; i++) {
+          final a = i * (pi / 3.0) - pi / 6.0;
+          final hx = cos(a) * r * 0.34;
+          final hy = sin(a) * r * 0.34;
+          if (i == 0) {
+            path.moveTo(hx, hy);
+          } else {
+            path.lineTo(hx, hy);
+          }
+        }
+        path.close();
+        strokePaint.strokeWidth = r * 0.14;
+        canvas.drawPath(path, strokePaint);
+
+        // 4 outer magnetic corner deflection arcs
+        final arcRect = Rect.fromCircle(center: Offset.zero, radius: r * 1.12);
+        strokePaint.strokeWidth = r * 0.18;
+        canvas.drawArc(arcRect, -2.65, 0.55, false, strokePaint);
+        canvas.drawArc(arcRect, -1.05, 0.55, false, strokePaint);
+        canvas.drawArc(arcRect, 0.50, 0.55, false, strokePaint);
+        canvas.drawArc(arcRect, 2.10, 0.55, false, strokePaint);
+        break;
+
+      case OrbitPowerUpType.gravityWell:
+        // 2. Gravity Well: Inward-spiraling vortex arcs + bright white/violet singularity core
+        strokePaint.strokeWidth = r * 0.18;
+        final outerRect = Rect.fromCircle(center: Offset.zero, radius: r * 0.98);
+        final midRect = Rect.fromCircle(center: Offset.zero, radius: r * 0.64);
+        canvas.drawArc(outerRect, 0.2, 2.3, false, strokePaint);
+        canvas.drawArc(outerRect, 3.3, 2.3, false, strokePaint);
+        strokePaint.color = color.withValues(alpha: 0.85);
+        canvas.drawArc(midRect, 1.1, 2.4, false, strokePaint);
+        canvas.drawArc(midRect, 4.2, 2.4, false, strokePaint);
+
+        // Bright singularity core
+        fillPaint.color = color;
+        canvas.drawCircle(Offset.zero, r * 0.36, fillPaint);
+        fillPaint.color = Colors.white;
+        canvas.drawCircle(Offset.zero, r * 0.20, fillPaint);
+        break;
+
+      case OrbitPowerUpType.chronoWarp:
+        // 3. Chrono Warp: Celestial hourglass + tilted orbital ring with time droplets
+        strokePaint.strokeWidth = r * 0.20;
+        // Top & bottom caps
+        canvas.drawLine(Offset(-r * 0.56, -r * 0.86), Offset(r * 0.56, -r * 0.86), strokePaint);
+        canvas.drawLine(Offset(-r * 0.56, r * 0.86), Offset(r * 0.56, r * 0.86), strokePaint);
+
+        // Hourglass bulbs
+        path.reset();
+        path.moveTo(-r * 0.48, -r * 0.84);
+        path.lineTo(r * 0.48, -r * 0.84);
+        path.lineTo(r * 0.10, 0);
+        path.lineTo(r * 0.48, r * 0.84);
+        path.lineTo(-r * 0.48, r * 0.84);
+        path.lineTo(-r * 0.10, 0);
+        path.close();
+        fillPaint.color = color.withValues(alpha: 0.22);
+        canvas.drawPath(path, fillPaint);
+        strokePaint.strokeWidth = r * 0.17;
+        canvas.drawPath(path, strokePaint);
+
+        // Tilted orbital ring + suspended droplet
+        canvas.save();
+        canvas.rotate(-0.45);
+        strokePaint.strokeWidth = r * 0.15;
+        canvas.drawOval(
+          Rect.fromCenter(center: Offset.zero, width: r * 2.15, height: r * 0.78),
+          strokePaint,
+        );
+        fillPaint.color = Colors.white;
+        canvas.drawCircle(Offset(-r * 0.92, r * 0.14), r * 0.18, fillPaint);
+        canvas.drawCircle(Offset(r * 0.88, -r * 0.14), r * 0.15, fillPaint);
+        canvas.restore();
+        break;
+
+      case OrbitPowerUpType.overdriveSurge:
+        // 4. Overdrive Surge: Sharp central lightning bolt + twin side shockwave arcs
+        path.reset();
+        path.moveTo(r * 0.18, -r * 0.98);
+        path.lineTo(-r * 0.48, r * 0.06);
+        path.lineTo(r * 0.04, r * 0.06);
+        path.lineTo(-r * 0.22, r * 0.98);
+        path.lineTo(r * 0.52, -r * 0.08);
+        path.lineTo(0, -r * 0.08);
+        path.close();
+        fillPaint.color = color;
+        canvas.drawPath(path, fillPaint);
+
+        // Left & right high-voltage shockwave arcs
+        strokePaint.strokeWidth = r * 0.18;
+        final waveRect = Rect.fromCircle(center: Offset.zero, radius: r * 0.96);
+        canvas.drawArc(waveRect, -0.55, 1.10, false, strokePaint);
+        canvas.drawArc(waveRect, pi - 0.55, 1.10, false, strokePaint);
+        break;
+
+      case OrbitPowerUpType.quantumLeap:
+        // 5. Quantum Leap: Circular wormhole portal ring + streaking rocket ship
+        strokePaint.strokeWidth = r * 0.22;
+        canvas.drawArc(
+          Rect.fromCircle(center: Offset.zero, radius: r * 0.82),
+          0.55,
+          4.8,
+          false,
+          strokePaint,
+        );
+
+        // Streaking rocket ship angled at -35 deg
+        canvas.save();
+        canvas.rotate(-0.58);
+        // Warp trail line
+        strokePaint.strokeWidth = r * 0.18;
+        canvas.drawLine(Offset(-r * 1.15, 0), Offset(-r * 0.20, 0), strokePaint);
+
+        // Rocket body
+        path.reset();
+        path.moveTo(r * 1.05, 0);
+        path.lineTo(r * 0.20, -r * 0.36);
+        path.lineTo(-r * 0.35, -r * 0.24);
+        path.lineTo(-r * 0.35, r * 0.24);
+        path.lineTo(r * 0.20, r * 0.36);
+        path.close();
+        fillPaint.color = color;
+        canvas.drawPath(path, fillPaint);
+
+        // Cockpit window dot
+        fillPaint.color = const Color(0xFF091426);
+        canvas.drawCircle(Offset(r * 0.32, 0), r * 0.13, fillPaint);
+        canvas.restore();
+        break;
+    }
   }
 
   // ─── Planetary Rings (Zero Rect allocation via Unit Scale) ────────────────
@@ -703,36 +1034,259 @@ class GamePainter extends CustomPainter {
     return list;
   }
 
-  // ─── Satellite Thruster Exhaust Ribbon ─────────────────────────────────────
+  // ─── Screen-Space Combo & Overdrive Speed Lines ───────────────────────────
+  void _drawSpeedLines(Canvas canvas, Size size) {
+    final intensity = ((engine.combo - 1) * 0.18 + (engine.overdriveCharges > 0 ? 0.45 : 0.0))
+        .clamp(0.15, 0.85);
+    final lineColor = engine.overdriveCharges > 0
+        ? const Color(0xFFFBBF24)
+        : equippedCustomization.primaryColor;
+    _fxStroke.strokeWidth = 1.4;
+    _fxStroke.color = lineColor.withValues(alpha: intensity * 0.32);
+
+    const lineCount = 8;
+    final h = size.height;
+    for (int i = 0; i < lineCount; i++) {
+      final isLeft = i.isEven;
+      final x = isLeft ? (8.0 + (i * 3.5)) : (size.width - 8.0 - (i * 3.5));
+      final phaseOffset = (engine.totalElapsed * 750.0 + i * 190.0) % (h + 140.0);
+      final yStart = phaseOffset - 70.0;
+      final len = 45.0 + (i % 3) * 24.0;
+      canvas.drawLine(Offset(x, yStart), Offset(x, yStart + len), _fxStroke);
+    }
+  }
+
+  // ─── Launch Shockwaves & Catch Ripples (4 Cosmic Styles) ──────────────────
+  void _drawShockwaves(Canvas canvas) {
+    final style = equippedCustomization.style;
+    final primary = colorBlindMode ? const Color(0xFFFFD600) : equippedCustomization.primaryColor;
+    final secondary = colorBlindMode ? const Color(0xFF00E5FF) : equippedCustomization.secondaryColor;
+
+    for (int i = 0; i < engine.shockwaves.length; i++) {
+      final sw = engine.shockwaves[i];
+      if (!sw.active) continue;
+
+      final t = sw.progress;
+      final inv = (1.0 - t).clamp(0.0, 1.0);
+      final r = sw.startRadius + (sw.maxRadius - sw.startRadius) * (1.0 - (1.0 - t) * (1.0 - t));
+      final center = Offset(sw.x, sw.y);
+
+      if (sw.isShieldBurst) {
+        _fxStroke.strokeWidth = 3.2 * inv;
+        _fxStroke.color = const Color(0xFF34D399).withValues(alpha: inv * 0.9);
+        canvas.drawCircle(center, r, _fxStroke);
+        _fxStroke.strokeWidth = 1.5 * inv;
+        _fxStroke.color = Colors.white.withValues(alpha: inv * 0.7);
+        canvas.drawCircle(center, r * 0.72, _fxStroke);
+        continue;
+      }
+
+      if (!sw.isLaunch) {
+        // Subtle planet catch resonance wave
+        _fxStroke.strokeWidth = 1.8 * inv;
+        _fxStroke.color = primary.withValues(alpha: inv * 0.45);
+        canvas.drawCircle(center, r, _fxStroke);
+        continue;
+      }
+
+      // Launch Shockwave styled according to equipped CosmicCustomization!
+      switch (style) {
+        case CustomizationStyle.classic:
+          _fxStroke.strokeWidth = 2.4 * inv + 0.5;
+          _fxStroke.color = primary.withValues(alpha: inv * 0.75);
+          canvas.drawCircle(center, r, _fxStroke);
+          _fxStroke.strokeWidth = 1.2 * inv;
+          _fxStroke.color = Colors.white.withValues(alpha: inv * 0.55);
+          canvas.drawCircle(center, r * 0.62, _fxStroke);
+          break;
+
+        case CustomizationStyle.sparkle:
+          // Starburst wave + 8 crystal rays
+          _fxStroke.strokeWidth = 2.2 * inv;
+          _fxStroke.color = primary.withValues(alpha: inv * 0.8);
+          canvas.drawCircle(center, r, _fxStroke);
+          _fxStroke.strokeWidth = 1.5 * inv;
+          _fxStroke.color = secondary.withValues(alpha: inv * 0.75);
+          for (int k = 0; k < 8; k++) {
+            final a = k * (pi / 4.0) + t * 0.5;
+            final r1 = r * 0.45;
+            final r2 = r * 1.12;
+            canvas.drawLine(
+              Offset(center.dx + cos(a) * r1, center.dy + sin(a) * r1),
+              Offset(center.dx + cos(a) * r2, center.dy + sin(a) * r2),
+              _fxStroke,
+            );
+          }
+          break;
+
+        case CustomizationStyle.dualIon:
+          // Twin concentric sonic boom rings
+          _fxStroke.strokeWidth = 2.6 * inv;
+          _fxStroke.color = primary.withValues(alpha: inv * 0.85);
+          canvas.drawCircle(center, r, _fxStroke);
+          _fxStroke.strokeWidth = 2.0 * inv;
+          _fxStroke.color = secondary.withValues(alpha: inv * 0.75);
+          canvas.drawCircle(center, r * 0.74, _fxStroke);
+          break;
+
+        case CustomizationStyle.cyberGlitch:
+          // Octagonal cyber-grid pulse wave
+          _fxPath.reset();
+          for (int k = 0; k < 8; k++) {
+            final a = k * (pi / 4.0) + pi / 8.0;
+            final px = center.dx + cos(a) * r;
+            final py = center.dy + sin(a) * r;
+            if (k == 0) {
+              _fxPath.moveTo(px, py);
+            } else {
+              _fxPath.lineTo(px, py);
+            }
+          }
+          _fxPath.close();
+          _fxStroke.strokeWidth = 2.4 * inv;
+          _fxStroke.color = primary.withValues(alpha: inv * 0.85);
+          canvas.drawPath(_fxPath, _fxStroke);
+
+          // Digital pixel fragments
+          _fxFill.color = secondary.withValues(alpha: inv * 0.8);
+          for (int k = 0; k < 4; k++) {
+            final a = k * (pi / 2.0) + 0.4;
+            final fx = center.dx + cos(a) * (r * 0.82);
+            final fy = center.dy + sin(a) * (r * 0.82);
+            canvas.drawRect(Rect.fromCenter(center: Offset(fx, fy), width: 4.0 * inv, height: 4.0 * inv), _fxFill);
+          }
+          break;
+      }
+    }
+  }
+
+  // ─── Satellite Thruster Exhaust Ribbon (4 Cosmic Trail Styles) ─────────────
   void _drawTrail(Canvas canvas, PlayerDot player) {
     final trail = player.trail;
     final count = trail.length;
     if (count < 2) return;
 
-    final style = _styleFor(equippedPlanet);
+    final worldStyle = _styleFor(equippedPlanet);
+    final customStyle = equippedCustomization.style;
+    final primaryColor = colorBlindMode
+        ? const Color(0xFFFFD600)
+        : (customStyle == CustomizationStyle.classic
+            ? _playerColor
+            : equippedCustomization.primaryColor);
+    final secondaryColor = colorBlindMode
+        ? const Color(0xFF00E5FF)
+        : equippedCustomization.secondaryColor;
 
-    // 1. Single smooth glowing ribbon path (zero MaskFilter.blur FBO switches)
+    // 1. Base smooth glowing ribbon path
     _trailPath.reset();
     _trailPath.moveTo(trail[0].x, trail[0].y);
     for (int i = 1; i < count; i++) {
       _trailPath.lineTo(trail[i].x, trail[i].y);
     }
 
-    _trailGlowPaint.strokeWidth = 7.0;
-    _trailGlowPaint.color = style.trailGlowColor;
+    _trailGlowPaint.strokeWidth = customStyle == CustomizationStyle.dualIon ? 9.0 : 7.0;
+    _trailGlowPaint.color = customStyle == CustomizationStyle.classic
+        ? worldStyle.trailGlowColor
+        : primaryColor.withValues(alpha: 0.28);
     canvas.drawPath(_trailPath, _trailGlowPaint);
 
-    // 2. Core plasma line segments (cached gradient colors)
-    final colors = _getTrailColors(_playerColor);
-    for (int i = 0; i < count - 1; i++) {
-      final pt1 = trail[i];
-      final pt2 = trail[i + 1];
-      final progress = i / count;
-      final width = (1.0 - progress) * 3.5 + 1.2;
+    // 2. Style-specific core rendering
+    switch (customStyle) {
+      case CustomizationStyle.classic:
+        final colors = _getTrailColors(primaryColor);
+        for (int i = 0; i < count - 1; i++) {
+          final pt1 = trail[i];
+          final pt2 = trail[i + 1];
+          final progress = i / count;
+          final width = (1.0 - progress) * 3.5 + 1.2;
 
-      _trailCorePaint.strokeWidth = width;
-      _trailCorePaint.color = colors[i % colors.length];
-      canvas.drawLine(Offset(pt1.x, pt1.y), Offset(pt2.x, pt2.y), _trailCorePaint);
+          _trailCorePaint.strokeWidth = width;
+          _trailCorePaint.color = colors[i % colors.length];
+          canvas.drawLine(Offset(pt1.x, pt1.y), Offset(pt2.x, pt2.y), _trailCorePaint);
+        }
+        break;
+
+      case CustomizationStyle.sparkle:
+        final colors = _getTrailColors(primaryColor);
+        for (int i = 0; i < count - 1; i++) {
+          final pt1 = trail[i];
+          final pt2 = trail[i + 1];
+          final progress = i / count;
+          final inv = 1.0 - progress;
+          _trailCorePaint.strokeWidth = inv * 3.0 + 1.0;
+          _trailCorePaint.color = colors[i % colors.length];
+          canvas.drawLine(Offset(pt1.x, pt1.y), Offset(pt2.x, pt2.y), _trailCorePaint);
+
+          // Shimmering 4-pointed star crystals along the wake
+          if (i.isEven && i < count - 2) {
+            final starSize = (4.2 * inv).clamp(1.2, 4.2);
+            _fxStroke.strokeWidth = 1.1;
+            _fxStroke.color = (i % 4 == 0 ? Colors.white : secondaryColor).withValues(alpha: inv * 0.9);
+            canvas.drawLine(
+              Offset(pt1.x - starSize, pt1.y),
+              Offset(pt1.x + starSize, pt1.y),
+              _fxStroke,
+            );
+            canvas.drawLine(
+              Offset(pt1.x, pt1.y - starSize),
+              Offset(pt1.x, pt1.y + starSize),
+              _fxStroke,
+            );
+          }
+        }
+        break;
+
+      case CustomizationStyle.dualIon:
+        // Twin parallel high-velocity racing beams
+        for (int i = 0; i < count - 1; i++) {
+          final pt1 = trail[i];
+          final pt2 = trail[i + 1];
+          final dx = pt2.x - pt1.x;
+          final dy = pt2.y - pt1.y;
+          final len = sqrt(dx * dx + dy * dy);
+          final inv = (1.0 - i / count).clamp(0.0, 1.0);
+          final sep = 3.2 * inv + 0.8;
+          double nx = 0.0;
+          double ny = 0.0;
+          if (len > 0.001) {
+            nx = -dy / len * sep;
+            ny = dx / len * sep;
+          }
+
+          _trailCorePaint.strokeWidth = inv * 2.2 + 0.8;
+          _trailCorePaint.color = primaryColor.withValues(alpha: inv * 0.95);
+          canvas.drawLine(
+            Offset(pt1.x + nx, pt1.y + ny),
+            Offset(pt2.x + nx, pt2.y + ny),
+            _trailCorePaint,
+          );
+          _trailCorePaint.color = secondaryColor.withValues(alpha: inv * 0.95);
+          canvas.drawLine(
+            Offset(pt1.x - nx, pt1.y - ny),
+            Offset(pt2.x - nx, pt2.y - ny),
+            _trailCorePaint,
+          );
+        }
+        break;
+
+      case CustomizationStyle.cyberGlitch:
+        // Digital neon data blocks & segmented cyber trail
+        for (int i = 0; i < count - 1; i++) {
+          final pt1 = trail[i];
+          final inv = (1.0 - i / count).clamp(0.0, 1.0);
+          final jitter = (i % 3 == 0) ? 2.2 : ((i % 3 == 1) ? -2.2 : 0.0);
+          final boxSize = (4.8 * inv + 1.4);
+          _fxFill.color = (i.isEven ? primaryColor : secondaryColor).withValues(alpha: inv * 0.9);
+          canvas.drawRect(
+            Rect.fromCenter(
+              center: Offset(pt1.x + jitter, pt1.y - jitter),
+              width: boxSize,
+              height: boxSize,
+            ),
+            _fxFill,
+          );
+        }
+        break;
     }
   }
 
@@ -767,18 +1321,45 @@ class GamePainter extends CustomPainter {
       canvas.drawCircle(pos, 15.0, _cbPlayerRingPaint);
     }
 
+    // Active Overdrive Surge golden aura
+    if (engine.overdriveCharges > 0) {
+      _fxStroke.strokeWidth = 1.8;
+      _fxStroke.color = const Color(0xFFFBBF24).withValues(alpha: 0.85);
+      canvas.drawCircle(pos, 14.0, _fxStroke);
+    }
+
+    // Active Chrono Warp temporal ring
+    if (engine.chronoWarpRemaining > 0) {
+      _fxStroke.strokeWidth = 1.4;
+      _fxStroke.color = const Color(0xFF38BDF8).withValues(alpha: 0.75);
+      canvas.drawCircle(pos, 16.5, _fxStroke);
+    }
+
+    // Active Aegis Shield forcefield around player
+    if (engine.hasAegisShield) {
+      _fxFill.color = const Color(0xFF34D399).withValues(alpha: 0.18);
+      canvas.drawCircle(pos, 12.5, _fxFill);
+      _fxStroke.strokeWidth = 1.8;
+      _fxStroke.color = const Color(0xFF34D399).withValues(alpha: 0.92);
+      canvas.drawCircle(pos, 12.5, _fxStroke);
+    }
+
     // 2. High-tech Satellite Probe Geometry rotated to heading
     canvas.save();
     canvas.translate(pos.dx, pos.dy);
     canvas.rotate(heading);
 
-    _drawCompanionVessel(canvas, equippedPlanet);
+    drawCompanionVessel(canvas, equippedPlanet);
 
     canvas.restore();
   }
 
   /// Renders a unique bespoke spaceship / moon companion for each of the 12 fleet worlds.
-  void _drawCompanionVessel(Canvas canvas, FleetPlanet world) {
+  static void drawCompanionVessel(
+    Canvas canvas,
+    FleetPlanet world,
+  ) {
+
     switch (world.id) {
       case 'terra':
         // ── Luna (Natural Moon) ──
@@ -1074,6 +1655,7 @@ class GamePainter extends CustomPainter {
         oldDelegate.reducedMotion != reducedMotion ||
         oldDelegate.isTurkish != isTurkish ||
         oldDelegate.equippedPlanet != equippedPlanet ||
+        oldDelegate.equippedCustomization != equippedCustomization ||
         oldDelegate.planetImages != planetImages;
   }
 }

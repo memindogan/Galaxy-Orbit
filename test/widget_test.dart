@@ -4,6 +4,7 @@ import 'package:neon_orbit/main.dart';
 import 'package:neon_orbit/providers/settings_provider.dart';
 import 'package:neon_orbit/screens/game_modals.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets('App smoke test', (WidgetTester tester) async {
@@ -119,6 +120,9 @@ void main() {
     final retryBtn = find.text('RETRY');
     await tester.ensureVisible(retryBtn);
     await tester.tap(retryBtn);
+    // Pump 400ms for the TRY AGAIN rocket launch animation to finish and invoke onRetry
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
     expect(retried, isTrue);
 
     final menuBtn = find.text('MENU');
@@ -294,5 +298,49 @@ void main() {
 
     // Returned to game seamlessly
     expect(find.byKey(const Key('game_settings_button')), findsOneWidget);
+  });
+
+  testWidgets('Main Menu toggles Time Attack mode and Hangar opens Customizations tab',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'totalStarDust': 1500,
+    });
+
+    await tester.pumpWidget(const NeonOrbitApp());
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Verify mode selector pills exist on Main Menu
+    final endlessBtn = find.byKey(const Key('mode_endless_button'));
+    final timeAttackBtn = find.byKey(const Key('mode_time_attack_button'));
+    expect(endlessBtn, findsOneWidget);
+    expect(timeAttackBtn, findsOneWidget);
+
+    // Switch to Time Attack mode
+    await tester.tap(timeAttackBtn);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('30s Time Attack · Tap PLAY'), findsOneWidget);
+
+    // Open Hangar and switch to Customizations tab
+    await tester.tap(find.byKey(const Key('menu_hangar_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final customizationsTab = find.byKey(const Key('hangar_customizations_tab'));
+    expect(customizationsTab, findsOneWidget);
+    await tester.tap(customizationsTab);
+    await tester.pump(const Duration(milliseconds: 250));
+
+    // Verify visible customization bundles are listed
+    expect(find.text('Classic Neon'), findsWidgets);
+    expect(find.text('Stardust Sparkle'), findsWidgets);
+
+    // Select Stardust Sparkle and unlock it (500 Stardust)
+    await tester.tap(find.text('Stardust Sparkle').first);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('UNLOCK · 500 STARDUST'), findsOneWidget);
+
+    await tester.tap(find.text('UNLOCK · 500 STARDUST'));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('EQUIPPED FX'), findsOneWidget);
   });
 }
