@@ -276,7 +276,6 @@ class _HangarScreenState extends State<HangarScreen>
     final selectedCustom = CustomizationCatalog.getById(_selectedCustomizationId);
     final isCustomUnlocked = gameState.isCustomizationUnlocked(selectedCustom.id);
     final isCustomEquipped = gameState.isCustomizationEquipped(selectedCustom.id);
-    final unlockedCustomCount = gameState.unlockedCustomizationIds.length;
 
     return Scaffold(
       backgroundColor: const Color(0xFF050814),
@@ -408,6 +407,15 @@ class _HangarScreenState extends State<HangarScreen>
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Stardust',
+                              style: GoogleFonts.inter(
+                                color: const Color(0xFF9BACCA),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -415,14 +423,28 @@ class _HangarScreenState extends State<HangarScreen>
                   ),
                 ),
 
-                // ── Dual Tab Header (Worlds & Companions vs Customizations) ──
+                // ── Dual Tab Selector Pills (Worlds & Companions vs Customizations) ──
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Row(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 3),
+                  child: Center(
+                    child: Container(
+                      height: 38,
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xD90C1626),
+                        borderRadius: BorderRadius.circular(19),
+                        border: Border.all(
+                          color: const Color(0x268CEFFF),
+                          width: 1.0,
+                        ),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x20000000),
+                            blurRadius: 8,
+                          ),
+                        ],
+                      ),
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           // Tab 0: Worlds & companions
@@ -437,40 +459,55 @@ class _HangarScreenState extends State<HangarScreen>
                               }
                             },
                             behavior: HitTestBehavior.opaque,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  settings.strings.worldsAndCompanions,
-                                  style: GoogleFonts.inter(
-                                    color: _selectedTab == 0 ? const Color(0xFF8CEFFF) : const Color(0xFF7F91AB),
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.4,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: _selectedTab == 0
+                                    ? const Color(0x228CEFFF)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(16),
+                                border: _selectedTab == 0
+                                    ? Border.all(
+                                        color: const Color(0xFF8CEFFF),
+                                        width: 1.0,
+                                      )
+                                    : null,
+                                boxShadow: _selectedTab == 0
+                                    ? const [
+                                        BoxShadow(
+                                          color: Color(0x408CEFFF),
+                                          blurRadius: 8,
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  FigmaIcon.orbit(
+                                    size: 13,
+                                    color: _selectedTab == 0
+                                        ? const Color(0xFF8CEFFF)
+                                        : const Color(0xFF7F91AB),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                AnimatedContainer(
-                                  duration: const Duration(milliseconds: 200),
-                                  width: _selectedTab == 0 ? 80 : 0,
-                                  height: 2,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF8CEFFF),
-                                    borderRadius: BorderRadius.circular(1),
-                                    boxShadow: _selectedTab == 0
-                                        ? const [
-                                            BoxShadow(
-                                              color: Color(0x808CEFFF),
-                                              blurRadius: 6,
-                                            ),
-                                          ]
-                                        : null,
+                                  const SizedBox(width: 7),
+                                  Text(
+                                    settings.strings.worldsAndCompanions,
+                                    style: GoogleFonts.inter(
+                                      color: _selectedTab == 0
+                                          ? const Color(0xFF8CEFFF)
+                                          : const Color(0xFF7F91AB),
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.3,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 20),
+                          const SizedBox(width: 4),
 
                           // Tab 1: Customizations (Özelleştirmeler)
                           GestureDetector(
@@ -484,70 +521,62 @@ class _HangarScreenState extends State<HangarScreen>
                               }
                             },
                             behavior: HitTestBehavior.opaque,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  settings.strings.customizationsTab,
-                                  style: GoogleFonts.inter(
-                                    color: _selectedTab == 1 ? const Color(0xFF8CEFFF) : const Color(0xFF7F91AB),
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.4,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: _selectedTab == 1
+                                    ? const Color(0x228CEFFF)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(16),
+                                border: _selectedTab == 1
+                                    ? Border.all(
+                                        color: const Color(0xFF8CEFFF),
+                                        width: 1.0,
+                                      )
+                                    : null,
+                                boxShadow: _selectedTab == 1
+                                    ? const [
+                                        BoxShadow(
+                                          color: Color(0x408CEFFF),
+                                          blurRadius: 8,
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.auto_awesome_rounded,
+                                    size: 13,
+                                    color: _selectedTab == 1
+                                        ? const Color(0xFF8CEFFF)
+                                        : const Color(0xFF7F91AB),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                AnimatedContainer(
-                                  duration: const Duration(milliseconds: 200),
-                                  width: _selectedTab == 1 ? 80 : 0,
-                                  height: 2,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF8CEFFF),
-                                    borderRadius: BorderRadius.circular(1),
-                                    boxShadow: _selectedTab == 1
-                                        ? const [
-                                            BoxShadow(
-                                              color: Color(0x808CEFFF),
-                                              blurRadius: 6,
-                                            ),
-                                          ]
-                                        : null,
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    settings.strings.customizationsTab,
+                                    style: GoogleFonts.inter(
+                                      color: _selectedTab == 1
+                                          ? const Color(0xFF8CEFFF)
+                                          : const Color(0xFF7F91AB),
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.3,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ],
                       ),
-
-                      // Unlocked counter pill
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF101B2C),
-                          borderRadius: BorderRadius.circular(100),
-                          border: Border.all(
-                            color: const Color(0x268CEFFF),
-                            width: 1,
-                          ),
-                        ),
-                        child: Text(
-                          _selectedTab == 0
-                              ? '$unlockedCount / ${FleetCatalog.worlds.length} UNLOCKED'
-                              : '$unlockedCustomCount / ${CustomizationCatalog.items.length} UNLOCKED',
-                          style: GoogleFonts.orbitron(
-                            color: const Color(0xFF8CEFFF),
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
 
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
 
                 // ── Centered Main Content ──
                 Expanded(
@@ -790,7 +819,7 @@ class _FeaturedWorldCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 342,
-      height: 340,
+      height: 316,
       clipBehavior: Clip.antiAlias,
       decoration: ShapeDecoration(
         color: const Color(0xD90C1626),
@@ -820,7 +849,7 @@ class _FeaturedWorldCard extends StatelessWidget {
           // 2. REAL Planet Body (ClipOval with authentic spherical lighting & glowing atmosphere)
           Positioned(
             left: (342 - 150) / 2,
-            top: 40,
+            top: 26,
             width: 150,
             height: 150,
             child: _FeaturedPlanetBody(planet: planet),
@@ -829,7 +858,7 @@ class _FeaturedWorldCard extends StatelessWidget {
           // 3. Inclined Orbit Ring + Revolving Companion Vessel
           Positioned(
             left: 0,
-            top: 20,
+            top: 6,
             width: 342,
             height: 190,
             child: RepaintBoundary(
@@ -842,7 +871,7 @@ class _FeaturedWorldCard extends StatelessWidget {
           // 4. Bottom Gradient Fade for Typography Readability
           Positioned(
             left: 0,
-            top: 170,
+            top: 148,
             width: 342,
             height: 170,
             child: const DecoratedBox(
@@ -1093,47 +1122,68 @@ class _HangarOrbitPainter extends CustomPainter {
     final orbitB = 42.0;
     final orbitRect = Rect.fromCenter(center: Offset.zero, width: orbitA * 2, height: orbitB * 2);
 
-    // Neon Orbit Ring
+    // Neon Orbit Ring (Draw ONLY front half from 0 to pi radians; rear is hidden behind planet)
     final ringPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round
       ..color = const Color(0xFF8CEFFF).withValues(alpha: 0.55);
-    canvas.drawOval(orbitRect, ringPaint);
+    canvas.drawArc(orbitRect, 0, pi, false, ringPaint);
 
-    // Faint outer ring aura
+    // Faint outer ring aura (front half)
     final auraPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.6
+      ..strokeCap = StrokeCap.round
       ..color = const Color(0xFF8CEFFF).withValues(alpha: 0.25);
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset.zero, width: (orbitA + 6) * 2, height: (orbitB + 3) * 2),
-      auraPaint,
+    final auraRect = Rect.fromCenter(
+      center: Offset.zero,
+      width: (orbitA + 6) * 2,
+      height: (orbitB + 3) * 2,
     );
+    canvas.drawArc(auraRect, 0, pi, false, auraPaint);
 
     // Revolving companion vessel
     final shipAngle = t * 1.5;
     final shipX = orbitA * cos(shipAngle);
     final shipY = orbitB * sin(shipAngle);
 
-    // Ion Thruster Flame Glow behind vessel
-    final flamePaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          const Color(0xFF8CEFFF),
-          const Color(0xFF38BDF8).withValues(alpha: 0.35),
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.45, 1.0],
-      ).createShader(Rect.fromCircle(center: Offset(shipX + 7, shipY - 3), radius: 12));
-    canvas.drawCircle(Offset(shipX + 7, shipY - 3), 12, flamePaint);
+    // Determine 3D visibility of vessel:
+    // When ship is in back half (shipY < 0) and behind the planet disk (radius ~75),
+    // occlude the vessel so it realistically passes behind the planet body.
+    final distToPlanet = (Offset(shipX, shipY) - const Offset(4.5, -14.5)).distance;
+    final double shipOpacity;
+    if (shipY < 0 && distToPlanet <= 74.0) {
+      shipOpacity = 0.0; // Completely hidden behind planet
+    } else if (shipY < 0 && distToPlanet < 84.0) {
+      shipOpacity = (distToPlanet - 74.0) / 10.0; // Soft horizon fade at planet edge
+    } else {
+      shipOpacity = 1.0;
+    }
 
-    // Vessel Body
-    final vesselPaint = Paint()..color = const Color(0xFFF0F7FF);
-    canvas.drawCircle(Offset(shipX, shipY), 6.0, vesselPaint);
+    if (shipOpacity > 0.01) {
+      // Ion Thruster Flame Glow behind vessel
+      final flamePaint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            const Color(0xFF8CEFFF).withValues(alpha: 0.9 * shipOpacity),
+            const Color(0xFF38BDF8).withValues(alpha: 0.35 * shipOpacity),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.45, 1.0],
+        ).createShader(Rect.fromCircle(center: Offset(shipX + 7, shipY - 3), radius: 12));
+      canvas.drawCircle(Offset(shipX + 7, shipY - 3), 12, flamePaint);
 
-    // Cockpit
-    final cockpitPaint = Paint()..color = const Color(0xFF8CEFFF);
-    canvas.drawCircle(Offset(shipX - 1.2, shipY - 1.2), 2.2, cockpitPaint);
+      // Vessel Body
+      final vesselPaint = Paint()
+        ..color = const Color(0xFFF0F7FF).withValues(alpha: shipOpacity);
+      canvas.drawCircle(Offset(shipX, shipY), 6.0, vesselPaint);
+
+      // Cockpit
+      final cockpitPaint = Paint()
+        ..color = const Color(0xFF8CEFFF).withValues(alpha: shipOpacity);
+      canvas.drawCircle(Offset(shipX - 1.2, shipY - 1.2), 2.2, cockpitPaint);
+    }
 
     canvas.restore();
   }
@@ -1171,23 +1221,25 @@ class _PlanetCatalogCard extends StatelessWidget {
         width: 100,
         height: 130,
         clipBehavior: Clip.antiAlias,
-        decoration: ShapeDecoration(
+        decoration: BoxDecoration(
           color: const Color(0xD90C1626),
-          shape: RoundedRectangleBorder(
-            side: BorderSide(
-              width: isSelected ? 1.5 : 1.0,
-              color: isSelected ? const Color(0xFF8CEFFF) : const Color(0x268CEFFF),
-            ),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          shadows: isSelected
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: isSelected
               ? const [
                   BoxShadow(
-                    color: Color(0x228CEFFF),
-                    blurRadius: 12,
+                    color: Color(0x358CEFFF),
+                    blurRadius: 14,
+                    spreadRadius: 1,
                   ),
                 ]
               : null,
+        ),
+        foregroundDecoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            width: isSelected ? 1.5 : 1.0,
+            color: isSelected ? const Color(0xFF8CEFFF) : const Color(0x268CEFFF),
+          ),
         ),
         child: Stack(
           children: [
@@ -1195,19 +1247,21 @@ class _PlanetCatalogCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Planet Thumbnail Image (100x84)
-                SizedBox(
-                  width: 100,
-                  height: 84,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Image.asset(
-                        world.assetPath,
-                        fit: BoxFit.cover,
-                        filterQuality: FilterQuality.medium,
-                        cacheWidth: 200,
-                        gaplessPlayback: true,
-                      ),
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
+                  child: SizedBox(
+                    width: 100,
+                    height: 84,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.asset(
+                          world.assetPath,
+                          fit: BoxFit.cover,
+                          filterQuality: FilterQuality.medium,
+                          cacheWidth: 200,
+                          gaplessPlayback: true,
+                        ),
                       // Radial dark shadow to enhance contrast
                       const DecoratedBox(
                         decoration: BoxDecoration(
@@ -1221,6 +1275,7 @@ class _PlanetCatalogCard extends StatelessWidget {
                     ],
                   ),
                 ),
+              ),
 
                 // Name & Status Pill
                 Padding(

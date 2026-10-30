@@ -921,10 +921,16 @@ class _FigmaScoreCard extends StatelessWidget {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(
-                            Icons.star_border_rounded,
-                            size: 16,
-                            color: Color(0xFFFFD166),
+                          Container(
+                            decoration: const BoxDecoration(
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Color(0x80FFD166),
+                                  blurRadius: 8,
+                                ),
+                              ],
+                            ),
+                            child: FigmaIcon.stardust(size: 15, color: const Color(0xFFFFD166)),
                           ),
                           const SizedBox(width: 4),
                           Flexible(

@@ -778,7 +778,17 @@ class _GameScreenState extends State<GameScreen>
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    FigmaIcon.stardust(size: 12, color: const Color(0xFF8CEFFF)),
+                                    Container(
+                                      decoration: const BoxDecoration(
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Color(0x80FFD166),
+                                            blurRadius: 8,
+                                          ),
+                                        ],
+                                      ),
+                                      child: FigmaIcon.stardust(size: 13, color: const Color(0xFFFFD166)),
+                                    ),
                                     const SizedBox(width: 5),
                                     Text(
                                       _formatNumber(gState.totalStarDust + eng.levelStarDust),
@@ -945,7 +955,17 @@ class _GameScreenState extends State<GameScreen>
                                       ),
                                     ),
                                     const SizedBox(width: 8),
-                                    FigmaIcon.stardust(size: 11, color: const Color(0xFF8CEFFF)),
+                                    Container(
+                                      decoration: const BoxDecoration(
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Color(0x80FFD166),
+                                            blurRadius: 6,
+                                          ),
+                                        ],
+                                      ),
+                                      child: FigmaIcon.stardust(size: 11, color: const Color(0xFFFFD166)),
+                                    ),
                                     const SizedBox(width: 4),
                                     Text(
                                       '+${banner.bonus}',
