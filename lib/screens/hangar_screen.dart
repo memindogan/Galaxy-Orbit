@@ -65,6 +65,20 @@ class _HangarScreenState extends State<HangarScreen>
     _selectedCustomizationId = gameState.equippedCustomizationId;
   }
 
+  bool _assetsPrecached = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_assetsPrecached) {
+      _assetsPrecached = true;
+      precacheImage(const AssetImage('assets/images/menu_bg.jpg'), context);
+      for (final world in FleetCatalog.worlds) {
+        precacheImage(AssetImage(world.assetPath), context);
+      }
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
@@ -1099,7 +1113,7 @@ class _FeaturedPlanetBody extends StatelessWidget {
 }
 
 /// CustomPainter: Inclined Orbit Ring & Companion Vessel
-/// CustomPainter: Inclined Orbit Ring & Companion Vessel with 3D Depth Layering
+/// CustomPainter: Inclined Orbit Ring & Companion Vessel with 3D Depth Layering (Zero-GC Optimized)
 class _HangarOrbitPainter extends CustomPainter {
   final Animation<double> clock;
   final FleetPlanet planet;
@@ -1110,6 +1124,65 @@ class _HangarOrbitPainter extends CustomPainter {
     required this.planet,
     required this.isForeground,
   }) : super(repaint: clock);
+
+  // ─── Pre-allocated Reusable Paints (Zero-Allocation per frame) ───────────────
+  static final Paint _ringPaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.2;
+
+  static final Paint _auraPaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 0.8;
+
+  static final Paint _trailPaint = Paint()..style = PaintingStyle.fill;
+
+  static final Paint _moonAuraPaint = Paint()
+    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+
+  static final Paint _moonPaint = Paint()..style = PaintingStyle.fill;
+
+  static final Paint _craterPaint = Paint()
+    ..color = const Color(0x35000000)
+    ..style = PaintingStyle.fill;
+
+  static final Paint _flamePaint = Paint()..style = PaintingStyle.fill;
+
+  static final Paint _wingPaint = Paint()..style = PaintingStyle.fill;
+
+  static final Paint _wingTrim = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 0.8;
+
+  static final Paint _panelPaint = Paint()..style = PaintingStyle.fill;
+
+  static final Paint _hullPaint = Paint()..style = PaintingStyle.fill;
+
+  static final Paint _corePaint = Paint()
+    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
+
+  static final Paint _coreCenter = Paint()..color = const Color(0xFFFFFFFF);
+
+  // ─── Pre-allocated Reusable Geometry ──────────────────────────────────────────
+  static final Path _wingPath = Path()
+    ..moveTo(6, 0)
+    ..lineTo(-5, -6)
+    ..lineTo(-3, 0)
+    ..lineTo(-5, 6)
+    ..close();
+
+  static final RRect _panelRRect = RRect.fromRectAndRadius(
+    Rect.fromLTWH(-7, -1.2, 14, 2.4),
+    Radius.circular(1),
+  );
+
+  static const Rect _hullRect = Rect.fromLTWH(-4.5, -4.5, 9, 9);
+  static const Rect _moonRect = Rect.fromLTWH(-6.5, -6.5, 13, 13);
+  static const Rect _flameRect = Rect.fromLTWH(-10, -10, 20, 20);
+
+  // ─── Cached Shaders per Planet ID ─────────────────────────────────────────────
+  static final Map<String, Shader> _moonShaderCache = {};
+  static final Map<String, Shader> _hullShaderCache = {};
+  static final Map<String, Shader> _flameShaderCache = {};
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1133,27 +1206,20 @@ class _HangarOrbitPainter extends CustomPainter {
     final gColor = planet.glowColor;
 
     // Orbit Ring Paint customized to the planet's celestial energy
-    final ringPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..color = pColor.withValues(alpha: isForeground ? 0.65 : 0.40);
-
-    final auraPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8
-      ..color = gColor.withValues(alpha: isForeground ? 0.30 : 0.18);
+    _ringPaint.color = pColor.withValues(alpha: isForeground ? 0.65 : 0.40);
+    _auraPaint.color = gColor.withValues(alpha: isForeground ? 0.30 : 0.18);
 
     if (isForeground) {
       // ── Front Layer (In front of Planet): draw 0 to pi radians ──────
-      canvas.drawArc(orbitRect, 0, pi, false, ringPaint);
-      canvas.drawArc(auraRect, 0, pi, false, auraPaint);
+      canvas.drawArc(orbitRect, 0, pi, false, _ringPaint);
+      canvas.drawArc(auraRect, 0, pi, false, _auraPaint);
     } else {
       // ── Back Layer (Behind Planet): draw pi to 2*pi radians ──────────
       // Note: The part directly behind the planet disk is naturally
       // occluded by the opaque planet body in Layer 2. The left and right
       // flanks extend seamlessly into open space.
-      canvas.drawArc(orbitRect, pi, pi, false, ringPaint);
-      canvas.drawArc(auraRect, pi, pi, false, auraPaint);
+      canvas.drawArc(orbitRect, pi, pi, false, _ringPaint);
+      canvas.drawArc(auraRect, pi, pi, false, _auraPaint);
     }
 
     // Companion Orbit calculation:
@@ -1189,22 +1255,22 @@ class _HangarOrbitPainter extends CustomPainter {
       final tx = 120.0 * cos(trailAngle);
       final ty = 42.0 * sin(trailAngle);
       final alpha = (1.0 - i / 7.0) * 0.50;
-      final trailPaint = Paint()
-        ..color = Color.lerp(pColor, cColor, 0.4)!.withValues(alpha: alpha);
-      canvas.drawCircle(Offset(tx, ty), 3.2 - i * 0.4, trailPaint);
+      _trailPaint.color = Color.lerp(pColor, cColor, 0.4)!.withValues(alpha: alpha);
+      canvas.drawCircle(Offset(tx, ty), 3.2 - i * 0.4, _trailPaint);
     }
 
     if (isMoon) {
       // ── Natural Moon Archetype (e.g. Luna for Terra) ─────────────────
+      canvas.save();
+      canvas.translate(shipX, shipY);
+
       // Lunar Aura Glow
-      final moonAuraPaint = Paint()
-        ..color = cColor.withValues(alpha: 0.35)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-      canvas.drawCircle(Offset(shipX, shipY), 8.5, moonAuraPaint);
+      _moonAuraPaint.color = cColor.withValues(alpha: 0.35);
+      canvas.drawCircle(Offset.zero, 8.5, _moonAuraPaint);
 
       // Spherical Moon Body with terminator shading
-      final moonPaint = Paint()
-        ..shader = RadialGradient(
+      _moonPaint.shader = _moonShaderCache.putIfAbsent(planet.id, () {
+        return RadialGradient(
           center: const Alignment(-0.35, -0.4),
           radius: 1.0,
           colors: [
@@ -1213,14 +1279,16 @@ class _HangarOrbitPainter extends CustomPainter {
             const Color(0xFF0F172A),
           ],
           stops: const [0.0, 0.65, 1.0],
-        ).createShader(Rect.fromCircle(center: Offset(shipX, shipY), radius: 6.5));
-      canvas.drawCircle(Offset(shipX, shipY), 6.5, moonPaint);
+        ).createShader(_moonRect);
+      });
+      canvas.drawCircle(Offset.zero, 6.5, _moonPaint);
 
       // Subtle lunar crater marks
-      final craterPaint = Paint()..color = const Color(0x35000000);
-      canvas.drawCircle(Offset(shipX - 1.8, shipY - 1.2), 1.2, craterPaint);
-      canvas.drawCircle(Offset(shipX + 2.0, shipY + 1.4), 1.0, craterPaint);
-      canvas.drawCircle(Offset(shipX + 0.2, shipY + 2.2), 0.7, craterPaint);
+      canvas.drawCircle(const Offset(-1.8, -1.2), 1.2, _craterPaint);
+      canvas.drawCircle(const Offset(2.0, 1.4), 1.0, _craterPaint);
+      canvas.drawCircle(const Offset(0.2, 2.2), 0.7, _craterPaint);
+
+      canvas.restore();
     } else {
       // ── Sci-Fi Companion Vessel / Satellite Archetype ─────────────────
       // Determine movement direction vector along orbit tangent
@@ -1232,16 +1300,21 @@ class _HangarOrbitPainter extends CustomPainter {
       final thrusterDir = Offset(-cos(tangentAngle), -sin(tangentAngle));
       final thrusterPos = Offset(shipX, shipY) + thrusterDir * 6.5;
 
-      final flamePaint = Paint()
-        ..shader = RadialGradient(
+      _flamePaint.shader = _flameShaderCache.putIfAbsent(planet.id, () {
+        return RadialGradient(
           colors: [
             gColor,
             pColor.withValues(alpha: 0.45),
             Colors.transparent,
           ],
           stops: const [0.0, 0.45, 1.0],
-        ).createShader(Rect.fromCircle(center: thrusterPos, radius: 11));
-      canvas.drawCircle(thrusterPos, 10, flamePaint);
+        ).createShader(_flameRect);
+      });
+
+      canvas.save();
+      canvas.translate(thrusterPos.dx, thrusterPos.dy);
+      canvas.drawCircle(Offset.zero, 10, _flamePaint);
+      canvas.restore();
 
       canvas.save();
       canvas.translate(shipX, shipY);
@@ -1252,54 +1325,34 @@ class _HangarOrbitPainter extends CustomPainter {
       // Wings / Solar Arrays / Collector Fins
       if (type.contains('skimmer') || type.contains('recon') || type.contains('probe')) {
         // Swept delta wings
-        final wingPaint = Paint()
-          ..color = Color.lerp(cColor, const Color(0xFF0C1626), 0.3)!
-          ..style = PaintingStyle.fill;
-        final wingPath = Path()
-          ..moveTo(6, 0)
-          ..lineTo(-5, -6)
-          ..lineTo(-3, 0)
-          ..lineTo(-5, 6)
-          ..close();
-        canvas.drawPath(wingPath, wingPaint);
+        _wingPaint.color = Color.lerp(cColor, const Color(0xFF0C1626), 0.3)!;
+        canvas.drawPath(_wingPath, _wingPaint);
 
-        final wingTrim = Paint()
-          ..color = pColor
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.8;
-        canvas.drawPath(wingPath, wingTrim);
+        _wingTrim.color = pColor;
+        canvas.drawPath(_wingPath, _wingTrim);
       } else {
         // Solar panels / Collector arrays
-        final panelPaint = Paint()..color = pColor.withValues(alpha: 0.85);
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            const Rect.fromLTWH(-7, -1.2, 14, 2.4),
-            const Radius.circular(1),
-          ),
-          panelPaint,
-        );
+        _panelPaint.color = pColor.withValues(alpha: 0.85);
+        canvas.drawRRect(_panelRRect, _panelPaint);
       }
 
       // Main Hull Body with metallic directional shading
-      final hullPaint = Paint()
-        ..shader = RadialGradient(
+      _hullPaint.shader = _hullShaderCache.putIfAbsent(planet.id, () {
+        return RadialGradient(
           center: const Alignment(-0.3, -0.3),
           colors: [
             const Color(0xFFFFFFFF),
             cColor,
             Color.lerp(cColor, const Color(0xFF0F172A), 0.65)!,
           ],
-        ).createShader(const Rect.fromLTWH(-4.5, -4.5, 9, 9));
-      canvas.drawCircle(Offset.zero, 4.5, hullPaint);
+        ).createShader(_hullRect);
+      });
+      canvas.drawCircle(Offset.zero, 4.5, _hullPaint);
 
       // Cockpit / Energy Sensor Core (pulsing with planet color)
-      final corePaint = Paint()
-        ..color = pColor
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
-      canvas.drawCircle(const Offset(1.2, 0), 1.8, corePaint);
-
-      final coreCenter = Paint()..color = const Color(0xFFFFFFFF);
-      canvas.drawCircle(const Offset(1.2, 0), 0.9, coreCenter);
+      _corePaint.color = pColor;
+      canvas.drawCircle(const Offset(1.2, 0), 1.8, _corePaint);
+      canvas.drawCircle(const Offset(1.2, 0), 0.9, _coreCenter);
 
       canvas.restore();
     }

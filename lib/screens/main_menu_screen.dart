@@ -78,6 +78,19 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     );
   }
 
+  bool _assetsPrecached = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_assetsPrecached) {
+      _assetsPrecached = true;
+      precacheImage(const AssetImage('assets/images/menu_bg.jpg'), context);
+      final equipped = context.read<GameStateProvider>().equippedPlanet;
+      precacheImage(AssetImage(equipped.assetPath), context);
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
@@ -104,20 +117,27 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
   // ─── Navigation ───────────────────────────────────────────────────────────
 
-  void _openGame() {
+  void _openGame() async {
     if (context.read<SettingsProvider>().vibrationEnabled) {
       HapticService.mediumImpact();
     }
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            const GameScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
-        transitionDuration: const Duration(milliseconds: 400),
-      ),
+    final route = PageRouteBuilder(
+      pageBuilder: (context, animation, secondaryAnimation) =>
+          const GameScreen(),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(opacity: animation, child: child);
+      },
+      transitionDuration: const Duration(milliseconds: 400),
     );
+    route.animation?.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        if (_clock.isAnimating) _clock.stop();
+      }
+    });
+    await Navigator.of(context).push(route);
+    if (mounted) {
+      if (!_clock.isAnimating) _clock.repeat();
+    }
   }
 
   void _openSettings() {
@@ -133,20 +153,27 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     );
   }
 
-  void _openHangar() {
+  void _openHangar() async {
     if (context.read<SettingsProvider>().vibrationEnabled) {
       HapticService.selectionClick();
     }
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            const HangarScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
-        transitionDuration: const Duration(milliseconds: 300),
-      ),
+    final route = PageRouteBuilder(
+      pageBuilder: (context, animation, secondaryAnimation) =>
+          const HangarScreen(),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(opacity: animation, child: child);
+      },
+      transitionDuration: const Duration(milliseconds: 300),
     );
+    route.animation?.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        if (_clock.isAnimating) _clock.stop();
+      }
+    });
+    await Navigator.of(context).push(route);
+    if (mounted) {
+      if (!_clock.isAnimating) _clock.repeat();
+    }
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────
@@ -175,26 +202,33 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             child: ColoredBox(color: kBackgroundColor),
           ),
 
-          // 1. Galaxy background with a slow drift
+          // 1. Galaxy background with a slow drift (bypassed if reducedMotion)
           Positioned.fill(
             child: RepaintBoundary(
-              child: AnimatedBuilder(
-                animation: _clock,
-                builder: (context, child) {
-                  final drift = reducedMotion ? 0.0 : sin(_clock.value * 2 * pi);
-                  return Transform.scale(
-                    scale: 1.08 + 0.025 * drift,
-                    alignment: const Alignment(0.6, -0.4),
-                    child: child,
-                  );
-                },
-                child: Image.asset(
-                  'assets/images/menu_bg.jpg',
-                  fit: BoxFit.cover,
-                  cacheWidth: 780,
-                  gaplessPlayback: true,
-                ),
-              ),
+              child: reducedMotion
+                  ? Image.asset(
+                      'assets/images/menu_bg.jpg',
+                      fit: BoxFit.cover,
+                      cacheWidth: 780,
+                      gaplessPlayback: true,
+                    )
+                  : AnimatedBuilder(
+                      animation: _clock,
+                      builder: (context, child) {
+                        final drift = sin(_clock.value * 2 * pi);
+                        return Transform.scale(
+                          scale: 1.08 + 0.025 * drift,
+                          alignment: const Alignment(0.6, -0.4),
+                          child: child,
+                        );
+                      },
+                      child: Image.asset(
+                        'assets/images/menu_bg.jpg',
+                        fit: BoxFit.cover,
+                        cacheWidth: 780,
+                        gaplessPlayback: true,
+                      ),
+                    ),
             ),
           ),
 
@@ -970,28 +1004,31 @@ class _PlayButton extends StatelessWidget {
 }
 
 class _PlayTrianglePainter extends CustomPainter {
+  static final Paint _glowPaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0
+    ..color = const Color(0xFF8CEFFF)
+    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+
+  static final Paint _strokePaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.8
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round
+    ..color = const Color(0xFF8CEFFF);
+
+  final Path _path = Path();
+
   @override
   void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(2, 2)
-      ..lineTo(size.width - 2, size.height / 2)
-      ..lineTo(2, size.height - 2)
-      ..close();
+    _path.reset();
+    _path.moveTo(2, 2);
+    _path.lineTo(size.width - 2, size.height / 2);
+    _path.lineTo(2, size.height - 2);
+    _path.close();
 
-    final glowPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0
-      ..color = const Color(0xFF8CEFFF)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-    canvas.drawPath(path, glowPaint);
-
-    final strokePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.8
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..color = const Color(0xFF8CEFFF);
-    canvas.drawPath(path, strokePaint);
+    canvas.drawPath(_path, _glowPaint);
+    canvas.drawPath(_path, _strokePaint);
   }
 
   @override

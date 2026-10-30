@@ -295,7 +295,10 @@ class SettingsModal extends StatelessWidget {
         if (isLowQuality) {
           return ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            child: sheetContent,
+            child: ColoredBox(
+              color: const Color(0xF50A1322),
+              child: sheetContent,
+            ),
           );
         }
 
