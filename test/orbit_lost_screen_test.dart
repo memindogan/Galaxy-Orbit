@@ -56,11 +56,11 @@ void main() {
     expect(find.text('RETRY'), findsOneWidget);
     expect(find.text('MENU'), findsOneWidget);
 
-    // Verify RETRY button restarts the game
+    // Verify RETRY button triggers rocket animation and then restarts the game
     final retryBtn = find.text('RETRY');
     await tester.tap(retryBtn);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(eng.phase, equals(GamePhase.playing));
     expect(eng.player.isOrbiting, isTrue);
@@ -240,5 +240,79 @@ void main() {
     expect(gameState.totalStarDust, equals(25));
     expect(gameState.remainingRevives, equals(2));
     expect(gameState.nextReviveCost, equals(60));
+  });
+
+  testWidgets('OrbitLostModal conditional animations: NEW HIGH badge and Heartbeat state', (WidgetTester tester) async {
+    // 1. Not a new high score & cannot afford revive -> NEW HIGH hidden, heartbeat inactive
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: OrbitLostModal(
+              score: 1200,
+              level: 3,
+              highScore: 5000,
+              runStarDust: 10,
+              totalWalletStarDust: 5,
+              orbitsCompleted: 8,
+              bestCombo: 2,
+              isNewHighScore: false,
+              canRevive: true,
+              canAffordRevive: false,
+              reviveCost: 25,
+              remainingRevives: 3,
+              onRetry: () {},
+              onMenu: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 700));
+
+    expect(find.byKey(const Key('new_high_badge')), findsNothing);
+    expect(find.byKey(const ValueKey<bool>(false)), findsOneWidget);
+    expect(find.text('8 Orbits'), findsOneWidget);
+    expect(find.text('x2 Combo'), findsOneWidget);
+
+    // 2. New high score & can afford revive -> NEW HIGH visible & shimmering, heartbeat active
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: OrbitLostModal(
+              score: 6400,
+              level: 5,
+              highScore: 6400,
+              runStarDust: 45,
+              totalWalletStarDust: 200,
+              orbitsCompleted: 12,
+              bestCombo: 5,
+              isNewHighScore: true,
+              canRevive: true,
+              canAffordRevive: true,
+              reviveCost: 25,
+              remainingRevives: 2,
+              onRevive: () {},
+              onRetry: () {},
+              onMenu: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 700));
+
+    expect(find.byKey(const Key('new_high_badge')), findsOneWidget);
+    expect(find.text('NEW HIGH!'), findsOneWidget);
+    expect(find.byKey(const ValueKey<bool>(true)), findsOneWidget);
+    expect(find.text('12 Orbits'), findsOneWidget);
+    expect(find.text('x5 Combo'), findsOneWidget);
   });
 }

@@ -15,7 +15,9 @@ import 'package:provider/provider.dart';
 
 import '../engine/game_engine.dart';
 import '../l10n/app_strings.dart';
+import '../models/cosmic_customization.dart';
 import '../models/fleet_planet.dart';
+import '../models/planet.dart';
 import '../painters/game_painter.dart';
 import '../providers/game_state_provider.dart';
 import '../providers/settings_provider.dart';
@@ -41,6 +43,11 @@ class _GameScreenState extends State<GameScreen>
   Timer? _bannerTimer;
   final ValueNotifier<({int level, int bonus})> _bannerNotifier =
       ValueNotifier((level: 1, bonus: 0));
+  late AnimationController _powerUpBannerController;
+  late CurvedAnimation _powerUpBannerFade;
+  Timer? _powerUpBannerTimer;
+  final ValueNotifier<({String title, Color color, OrbitPowerUpType type})> _powerUpBannerNotifier =
+      ValueNotifier((title: '', color: const Color(0xFF00F0FF), type: OrbitPowerUpType.aegisShield));
   late AudioService _audio;
   double _lastTime = 0;
   bool _initialised = false;
@@ -155,6 +162,17 @@ class _GameScreenState extends State<GameScreen>
       begin: const Offset(0.0, -0.4),
       end: Offset.zero,
     ).animate(_bannerFade);
+
+    _powerUpBannerController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+      reverseDuration: const Duration(milliseconds: 280),
+    );
+    _powerUpBannerFade = CurvedAnimation(
+      parent: _powerUpBannerController,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
   }
 
   Future<void> _loadPlanetImages() async {
@@ -256,6 +274,8 @@ class _GameScreenState extends State<GameScreen>
       onHit: _onHit,
       onGameOver: _onGameOver,
       onLevelComplete: _onLevelComplete,
+      onPowerUpCollected: _onPowerUpCollected,
+      onShieldUsed: _onShieldUsed,
     );
 
     gameState.startLevel(size.width, size.height);
@@ -350,6 +370,50 @@ class _GameScreenState extends State<GameScreen>
     });
   }
 
+  void _onPowerUpCollected(OrbitPowerUpType powerUp) {
+    if (!mounted) return;
+    final settings = context.read<SettingsProvider>();
+    final strings = settings.strings;
+    if (settings.vibrationEnabled) {
+      HapticService.heavyImpact();
+    }
+    final (String label, Color color) = switch (powerUp) {
+      OrbitPowerUpType.aegisShield => (strings.powerUpShield, const Color(0xFF00F0FF)),
+      OrbitPowerUpType.gravityWell => (strings.powerUpGravityWell, const Color(0xFFB388FF)),
+      OrbitPowerUpType.chronoWarp => (strings.powerUpChronoWarp, const Color(0xFF00E676)),
+      OrbitPowerUpType.overdriveSurge => (strings.powerUpOverdrive, const Color(0xFFFFD600)),
+      OrbitPowerUpType.quantumLeap => (strings.powerUpQuantumLeap, const Color(0xFFFF4081)),
+    };
+    if (label.isNotEmpty) {
+      _showPowerUpToast(label, color, powerUp);
+    }
+  }
+
+  void _onShieldUsed(bool brokeBarrier) {
+    if (!mounted) return;
+    final settings = context.read<SettingsProvider>();
+    final strings = settings.strings;
+    if (settings.vibrationEnabled) {
+      HapticService.heavyImpact();
+    }
+    _showPowerUpToast(
+      brokeBarrier ? strings.powerUpShieldBrokeHazard : strings.powerUpShieldSaved,
+      const Color(0xFF00F0FF),
+      OrbitPowerUpType.aegisShield,
+    );
+  }
+
+  void _showPowerUpToast(String title, Color color, OrbitPowerUpType type) {
+    _powerUpBannerNotifier.value = (title: title, color: color, type: type);
+    _powerUpBannerTimer?.cancel();
+    _powerUpBannerController.forward(from: 0.0);
+    _powerUpBannerTimer = Timer(const Duration(milliseconds: 1650), () {
+      if (mounted) {
+        _powerUpBannerController.reverse();
+      }
+    });
+  }
+
   // ─── Settings modal ────────────────────────────────────────────────────────
 
   void _openSettings() {
@@ -419,6 +483,9 @@ class _GameScreenState extends State<GameScreen>
                       final equipped = context.select<GameStateProvider, FleetPlanet>(
                         (g) => g.equippedPlanet,
                       );
+                      final customization = context.select<GameStateProvider, CosmicCustomization>(
+                        (g) => g.equippedCustomization,
+                      );
                       return CustomPaint(
                         painter: GamePainter(
                           engine: engine,
@@ -427,6 +494,7 @@ class _GameScreenState extends State<GameScreen>
                           reducedMotion: data.$3,
                           isTurkish: data.$4,
                           equippedPlanet: equipped,
+                          equippedCustomization: customization,
                           planetImages: _planetImages,
                           repaint: _ticker,
                         ),
@@ -522,7 +590,134 @@ class _GameScreenState extends State<GameScreen>
                                   );
                                 }),
                               ),
+                              // Active Power-Up Status Pills
+                              if (eng.hasAegisShield ||
+                                  eng.gravityWellCharges > 0 ||
+                                  eng.overdriveCharges > 0) ...[
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 5,
+                                  runSpacing: 4,
+                                  children: [
+                                    if (eng.hasAegisShield)
+                                      _ActiveBuffChip(
+                                        type: OrbitPowerUpType.aegisShield,
+                                        label: strings.powerUpShield,
+                                        color: const Color(0xFF00F0FF),
+                                      ),
+                                    if (eng.gravityWellCharges > 0)
+                                      _ActiveBuffChip(
+                                        type: OrbitPowerUpType.gravityWell,
+                                        label: '${strings.powerUpGravityWell} x${eng.gravityWellCharges}',
+                                        color: const Color(0xFFB388FF),
+                                      ),
+                                    if (eng.overdriveCharges > 0)
+                                      _ActiveBuffChip(
+                                        type: OrbitPowerUpType.overdriveSurge,
+                                        label: '${strings.powerUpOverdrive} x${eng.overdriveCharges}',
+                                        color: const Color(0xFFFFD600),
+                                      ),
+                                  ],
+                                ),
+                              ],
                             ],
+                          ),
+                        ),
+
+                        // Top-Center: Live Time Attack Countdown & Chrono Warp Timer
+                        Positioned(
+                          top: MediaQuery.paddingOf(context).top + 6,
+                          left: 0,
+                          right: 0,
+                          child: IgnorePointer(
+                            child: Center(
+                              child: RepaintBoundary(
+                                child: AnimatedBuilder(
+                                  animation: _ticker,
+                                  builder: (context, _) {
+                                    final isTimeAttack = eng.mode == GameMode.timeAttack;
+                                    final hasChrono = eng.chronoWarpRemaining > 0.0;
+                                    if (!isTimeAttack && !hasChrono) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final isUrgent = isTimeAttack && eng.timeRemaining <= 7.0;
+                                    final timerColor = isUrgent
+                                        ? const Color(0xFFFF4060)
+                                        : const Color(0xFF8CEFFF);
+                                    return Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (isTimeAttack)
+                                          Container(
+                                            key: const Key('time_attack_hud_pill'),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 5,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xD90D1424),
+                                              borderRadius: BorderRadius.circular(14),
+                                              border: Border.all(
+                                                color: timerColor.withValues(alpha: 0.65),
+                                                width: 1.1,
+                                              ),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: timerColor.withValues(alpha: 0.22),
+                                                  blurRadius: 10,
+                                                ),
+                                              ],
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.timer_outlined,
+                                                  size: 13,
+                                                  color: timerColor,
+                                                ),
+                                                const SizedBox(width: 5),
+                                                Text(
+                                                  strings.timeRemaining(eng.timeRemaining.toStringAsFixed(1)),
+                                                  style: GoogleFonts.orbitron(
+                                                    decoration: TextDecoration.none,
+                                                    color: Colors.white,
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w700,
+                                                    letterSpacing: 1.2,
+                                                  ),
+                                                ),
+                                                if (eng.timeBonusDisplayTimer > 0 &&
+                                                    eng.lastTimeBonus > 0) ...[
+                                                  const SizedBox(width: 6),
+                                                  Text(
+                                                    '+${eng.lastTimeBonus.toInt()}s',
+                                                    style: GoogleFonts.orbitron(
+                                                      decoration: TextDecoration.none,
+                                                      color: const Color(0xFF00E676),
+                                                      fontSize: 10.5,
+                                                      fontWeight: FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                        if (hasChrono) ...[
+                                          if (isTimeAttack) const SizedBox(height: 4),
+                                          _ActiveBuffChip(
+                                            type: OrbitPowerUpType.chronoWarp,
+                                            label:
+                                                '${strings.powerUpChronoWarp} ${eng.chronoWarpRemaining.toStringAsFixed(1)}s',
+                                            color: const Color(0xFF00E676),
+                                          ),
+                                        ],
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
                           ),
                         ),
 
@@ -634,9 +829,15 @@ class _GameScreenState extends State<GameScreen>
                     return OrbitLostModal(
                       score: eng.score,
                       level: gState.currentLevel,
-                      highScore: gState.highScore,
+                      highScore: gState.activeHighScore,
                       runStarDust: eng.runStarDust,
                       totalWalletStarDust: gState.totalStarDust,
+                      orbitsCompleted: eng.totalCaptures,
+                      bestCombo: eng.maxCombo,
+                      isNewHighScore: gState.isLastRunNewHighScore,
+                      isTimeUp: eng.isTimeUpGameOver,
+                      isTimeAttack: eng.mode == GameMode.timeAttack,
+                      equippedPlanet: gState.equippedPlanet,
                       canRevive: gState.canRevive,
                       canAffordRevive: gState.canAffordRevive,
                       reviveCost: gState.nextReviveCost,
@@ -762,6 +963,68 @@ class _GameScreenState extends State<GameScreen>
                 ),
               ),
             ),
+
+            // ── Floating Power-Up / Shield Notification Pill ──
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 84,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: IgnorePointer(
+                  child: RepaintBoundary(
+                    child: FadeTransition(
+                      opacity: _powerUpBannerFade,
+                      child: ValueListenableBuilder<({String title, Color color, OrbitPowerUpType type})>(
+                        valueListenable: _powerUpBannerNotifier,
+                        builder: (context, toast, _) {
+                          if (toast.title.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xE6091426),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: toast.color.withValues(alpha: 0.72),
+                                width: 1.0,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: toast.color.withValues(alpha: 0.28),
+                                  blurRadius: 12,
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _PowerUpMiniBadgeIcon(
+                                  type: toast.type,
+                                  color: toast.color,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  toast.title,
+                                  style: GoogleFonts.orbitron(
+                                    decoration: TextDecoration.none,
+                                    color: Colors.white,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
             ],
           ),
         ),
@@ -803,6 +1066,117 @@ class _GameScreenState extends State<GameScreen>
     _bannerNotifier.dispose();
     _bannerFade.dispose();
     _bannerController.dispose();
+    _powerUpBannerTimer?.cancel();
+    _powerUpBannerNotifier.dispose();
+    _powerUpBannerFade.dispose();
+    _powerUpBannerController.dispose();
     super.dispose();
   }
+}
+
+class _ActiveBuffChip extends StatelessWidget {
+  final OrbitPowerUpType type;
+  final String label;
+  final Color color;
+
+  const _ActiveBuffChip({
+    required this.type,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xD9071022),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: color.withValues(alpha: 0.65),
+          width: 0.9,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.20),
+            blurRadius: 6,
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _PowerUpMiniBadgeIcon(
+            type: type,
+            color: color,
+            size: 13,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: GoogleFonts.orbitron(
+              decoration: TextDecoration.none,
+              color: color,
+              fontSize: 8.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PowerUpMiniBadgeIcon extends StatelessWidget {
+  final OrbitPowerUpType type;
+  final Color color;
+  final double size;
+
+  const _PowerUpMiniBadgeIcon({
+    required this.type,
+    required this.color,
+    this.size = 14,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _PowerUpMiniBadgePainter(type: type, color: color),
+      ),
+    );
+  }
+}
+
+class _PowerUpMiniBadgePainter extends CustomPainter {
+  final OrbitPowerUpType type;
+  final Color color;
+
+  const _PowerUpMiniBadgePainter({
+    required this.type,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final fill = Paint()..style = PaintingStyle.fill;
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final path = Path();
+
+    final r = size.width * 0.45;
+    canvas.save();
+    canvas.translate(size.width * 0.5, size.height * 0.5);
+    GamePainter.drawPowerUpGlyph(canvas, type, color, r, fill, stroke, path);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _PowerUpMiniBadgePainter oldDelegate) =>
+      oldDelegate.type != type || oldDelegate.color != color;
 }

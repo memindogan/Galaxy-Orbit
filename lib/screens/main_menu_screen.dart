@@ -19,6 +19,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../constants/theme_constants.dart';
+import '../engine/game_engine.dart';
 import '../l10n/app_strings.dart';
 import '../models/fleet_planet.dart';
 import '../providers/game_state_provider.dart';
@@ -360,6 +361,108 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           ),
         ),
 
+        // ── Game Mode Selector Pill (Endless vs Time Attack) ───────────────
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 248,
+          child: Center(
+            child: Selector<GameStateProvider, GameMode>(
+              selector: (_, g) => g.selectedMode,
+              builder: (context, selectedMode, _) {
+                return Container(
+                  height: 30,
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: kSurfaceColor.withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(
+                      color: kBorderSoft.withValues(alpha: 0.18),
+                      width: 1.0,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GestureDetector(
+                        key: const Key('mode_endless_button'),
+                        onTap: () {
+                          if (selectedMode != GameMode.endless) {
+                            if (context.read<SettingsProvider>().vibrationEnabled) {
+                              HapticService.selectionClick();
+                            }
+                            context.read<GameStateProvider>().setGameMode(GameMode.endless);
+                          }
+                        },
+                        behavior: HitTestBehavior.opaque,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: selectedMode == GameMode.endless
+                                ? kAccentColor.withValues(alpha: 0.22)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            border: selectedMode == GameMode.endless
+                                ? Border.all(color: kAccentColor.withValues(alpha: 0.65), width: 1.0)
+                                : null,
+                          ),
+                          child: Text(
+                            strings.endlessMode,
+                            style: GoogleFonts.orbitron(
+                              color: selectedMode == GameMode.endless ? kAccentColor : kTextMuted,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      GestureDetector(
+                        key: const Key('mode_time_attack_button'),
+                        onTap: () {
+                          if (selectedMode != GameMode.timeAttack) {
+                            if (context.read<SettingsProvider>().vibrationEnabled) {
+                              HapticService.selectionClick();
+                            }
+                            context.read<GameStateProvider>().setGameMode(GameMode.timeAttack);
+                          }
+                        },
+                        behavior: HitTestBehavior.opaque,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: selectedMode == GameMode.timeAttack
+                                ? const Color(0xFFFBBF24).withValues(alpha: 0.22)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            border: selectedMode == GameMode.timeAttack
+                                ? Border.all(color: const Color(0xFFFBBF24).withValues(alpha: 0.65), width: 1.0)
+                                : null,
+                          ),
+                          child: Text(
+                            strings.timeAttackMode,
+                            style: GoogleFonts.orbitron(
+                              color: selectedMode == GameMode.timeAttack
+                                  ? const Color(0xFFFBBF24)
+                                  : kTextMuted,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+
         // ── Equipped planet (center 195,434  r 123.2) ──────────────────────────
         Positioned(
           left: _kPlanetCenter.dx - _kPlanetRadius,
@@ -409,24 +512,37 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           ),
         ),
 
-        // ── Continue line (mesafe / seviye) ────────────────────────────────
+        // ── Continue line (mesafe / seviye veya Zamana Karşı rekor) ────────
         Positioned(
           left: 0,
           right: 0,
           top: 728,
           child: Center(
-            child: Selector<GameStateProvider, int>(
-              selector: (_, g) => g.bestDistance,
-              builder: (_, best, _) => Text(
-                best > 0
-                    ? strings.journeyContinue(best)
-                    : strings.journeyBegin,
-                style: GoogleFonts.inter(
-                  color: kTextMuted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w400,
-                ),
-              ),
+            child: Selector<GameStateProvider, (GameMode, int, int)>(
+              selector: (_, g) => (g.selectedMode, g.bestDistance, g.timeAttackHighScore),
+              builder: (_, data, _) {
+                final mode = data.$1;
+                final bestDist = data.$2;
+                final bestTimeScore = data.$3;
+                final String label;
+                if (mode == GameMode.timeAttack) {
+                  label = bestTimeScore > 0
+                      ? strings.timeAttackContinue(formatThousands(bestTimeScore))
+                      : strings.timeAttackBegin;
+                } else {
+                  label = bestDist > 0
+                      ? strings.journeyContinue(bestDist)
+                      : strings.journeyBegin;
+                }
+                return Text(
+                  label,
+                  style: GoogleFonts.inter(
+                    color: kTextMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                  ),
+                );
+              },
             ),
           ),
         ),

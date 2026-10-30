@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neon_orbit/engine/game_engine.dart';
 import 'package:neon_orbit/engine/level_manager.dart';
+import 'package:neon_orbit/models/cosmic_customization.dart';
 import 'package:neon_orbit/models/fleet_planet.dart';
 import 'package:neon_orbit/models/planet.dart';
 import 'package:neon_orbit/models/player_dot.dart';
@@ -333,6 +334,201 @@ void main() {
       for (final world in FleetCatalog.worlds) {
         expect(world.assetPath, equals('assets/images/planet_${world.id}.jpg'));
       }
+    });
+
+    test('Entry-only Power-Up rule: collects when entering near power-up angle, vanishes if missed on entry', () {
+      final engine = GameEngine();
+      final manager = EndlessManager(screenWidth: 400, screenHeight: 800);
+      engine.init(manager, 400, 800);
+
+      // 1. Place Gravity Well power-up on planet[1] at angle 0.0 (right side)
+      final p1 = engine.planets[1];
+      p1.powerUp = OrbitPowerUpType.gravityWell;
+      p1.powerUpAngle = 0.0;
+
+      // Enter orbit on the opposite side (angle = pi, left side) -> should miss and vanish!
+      engine.player.x = p1.x - p1.radius;
+      engine.player.y = p1.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+
+      expect(engine.currentPlanetIndex, equals(1));
+      expect(engine.gravityWellCharges, equals(0));
+      expect(p1.powerUp, isNull);
+      expect(p1.powerUpVanishTimer, greaterThan(0.4));
+
+      // 2. Place Gravity Well power-up on planet[2] at angle 0.0 (right side)
+      final p2 = engine.planets[2];
+      p2.powerUp = OrbitPowerUpType.gravityWell;
+      p2.powerUpAngle = 0.0;
+
+      // Enter orbit right on the power-up angle (angle = 0.0) -> collects!
+      engine.player.x = p2.x + p2.radius;
+      engine.player.y = p2.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+
+      expect(engine.currentPlanetIndex, equals(2));
+      expect(engine.gravityWellCharges, equals(3));
+      expect(engine.effectiveCatchRadius, closeTo(GameEngine.catchRadius * 1.65, 0.01));
+      expect(p2.powerUp, isNull);
+    });
+
+    test('Aegis Shield saves from space miss and shatters Level 7+ hazard barrier on entry', () {
+      final engine = GameEngine();
+      final manager = EndlessManager(screenWidth: 400, screenHeight: 800);
+      engine.init(manager, 400, 800);
+
+      // 1. Grant Aegis Shield and fly off-screen -> rescues back to nearest planet
+      engine.hasAegisShield = true;
+      engine.player.isOrbiting = false;
+      engine.player.x = -200; // off-screen left (< -150 margin)
+      engine.player.y = engine.planets[0].y;
+      engine.update(1 / 60);
+
+      expect(engine.phase, equals(GamePhase.playing));
+      expect(engine.player.isOrbiting, isTrue);
+      expect(engine.hasAegisShield, isFalse);
+
+      // 2. Hitting a hazard barrier WITH Aegis Shield shatters the hazard and attaches safely
+      final target = engine.planets[engine.currentPlanetIndex + 1];
+      target.hasHazard = true;
+      target.hazardAngle = -0.3;
+      target.powerUp = null;
+
+      engine.hasAegisShield = true;
+      engine.player.x = target.x + target.radius; // angle 0.0 (inside hazard [-0.3, +1.53])
+      engine.player.y = target.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+
+      expect(engine.phase, equals(GamePhase.playing));
+      expect(target.hasHazard, isFalse);
+      expect(target.hazardShatterTimer, greaterThan(0.5));
+      expect(engine.hasAegisShield, isFalse);
+
+      // 3. Hitting a hazard barrier WITHOUT Aegis Shield triggers Game Over
+      final pNext = engine.planets[engine.currentPlanetIndex + 1];
+      pNext.hasHazard = true;
+      pNext.hazardAngle = -0.3;
+      pNext.powerUp = null;
+
+      engine.player.x = pNext.x + pNext.radius; // angle 0.0 (inside hazard)
+      engine.player.y = pNext.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+
+      expect(engine.phase, equals(GamePhase.gameOver));
+    });
+
+    test('Chrono Warp, Overdrive Surge, and Quantum Leap power-ups apply exact mechanics', () {
+      final engine = GameEngine();
+      final manager = EndlessManager(screenWidth: 400, screenHeight: 800);
+      engine.init(manager, 400, 800);
+
+      // Collect Chrono Warp on planet[1]
+      final p1 = engine.planets[1];
+      p1.hasHazard = false;
+      p1.powerUp = OrbitPowerUpType.chronoWarp;
+      p1.powerUpAngle = 0.0;
+      engine.player.x = p1.x + p1.radius;
+      engine.player.y = p1.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+
+      expect(engine.chronoWarpRemaining, closeTo(6.0, 0.1));
+
+      // Collect Overdrive Surge on planet[2]
+      final p2 = engine.planets[2];
+      p2.hasHazard = false;
+      p2.powerUp = OrbitPowerUpType.overdriveSurge;
+      p2.powerUpAngle = 0.0;
+      engine.player.x = p2.x + p2.radius;
+      engine.player.y = p2.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+
+      expect(engine.overdriveCharges, equals(4));
+
+      // Collect Quantum Leap on planet[3] -> warps +2 planets ahead to original planet[5]!
+      final p3 = engine.planets[3];
+      final expectedDestPlanet = engine.planets[5];
+      p3.hasHazard = false;
+      p3.powerUp = OrbitPowerUpType.quantumLeap;
+      p3.powerUpAngle = 0.0;
+      final scoreBeforeLeap = engine.score;
+      engine.player.x = p3.x + p3.radius;
+      engine.player.y = p3.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+
+      expect(engine.planets[engine.currentPlanetIndex], same(expectedDestPlanet));
+      expect(engine.score, greaterThanOrEqualTo(scoreBeforeLeap + 250));
+    });
+
+    test('Time Attack mode initializes 30s timer, awards time bonuses, and ends when time expires', () {
+      final engine = GameEngine();
+      final manager = EndlessManager(screenWidth: 400, screenHeight: 800);
+      engine.init(manager, 400, 800, gameMode: GameMode.timeAttack);
+
+      expect(engine.mode, equals(GameMode.timeAttack));
+      expect(engine.timeRemaining, equals(30.0));
+
+      // Advance 5 seconds while orbiting
+      engine.update(5.0);
+      expect(engine.timeRemaining, closeTo(25.0, 0.05));
+
+      // Capture next planet -> +2.0s bonus
+      final p1 = engine.planets[1];
+      engine.player.x = p1.x;
+      engine.player.y = p1.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+      expect(engine.timeRemaining, greaterThan(26.8));
+
+      // Drain remaining time -> triggers Time Up Game Over
+      engine.update(30.0);
+      expect(engine.phase, equals(GamePhase.gameOver));
+      expect(engine.isTimeUpGameOver, isTrue);
+    });
+
+    test('CustomizationCatalog provides 4 trail & launch wave bundles with fixed 500 Stardust unlock price', () {
+      expect(CustomizationCatalog.items.length, equals(4));
+      expect(CustomizationCatalog.getById('classic').price, equals(0));
+      expect(CustomizationCatalog.getById('sparkle').price, equals(500));
+      expect(CustomizationCatalog.getById('dual_ion').price, equals(500));
+      expect(CustomizationCatalog.getById('cyber_glitch').price, equals(500));
+    });
+
+    test('Dynamic Camera Zoom works on every transition and Micro Hit-Stop triggers only on epic moments', () {
+      final engine = GameEngine();
+      final manager = EndlessManager(screenWidth: 400, screenHeight: 800);
+      engine.init(manager, 400, 800);
+
+      // 1. Launch -> camera zooms out noticeably during flight
+      engine.onTap();
+      for (int i = 0; i < 6; i++) {
+        engine.smoothCamera(1 / 60);
+      }
+      expect(engine.cameraZoom, lessThan(0.92));
+
+      // 2. Standard capture (skippedPlanets == 0) -> triggers zoom-in punch (> 1.0), NO hit-stop (0.0)
+      final p1 = engine.planets[1];
+      engine.player.x = p1.x;
+      engine.player.y = p1.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+      expect(engine.hitStopTimer, equals(0.0));
+      expect(engine.cameraZoomPunch, greaterThanOrEqualTo(0.05));
+
+      // 3. Orbit Leap (skip 1 planet -> land on currentPlanetIndex + 2) -> triggers ~52ms micro hit-stop!
+      final pLeap = engine.planets[engine.currentPlanetIndex + 2];
+      engine.player.x = pLeap.x;
+      engine.player.y = pLeap.y;
+      engine.player.isOrbiting = false;
+      engine.update(1 / 60);
+      expect(engine.hitStopTimer, greaterThan(0.045));
+      expect(engine.cameraZoomPunch, greaterThanOrEqualTo(0.09));
     });
   });
 }

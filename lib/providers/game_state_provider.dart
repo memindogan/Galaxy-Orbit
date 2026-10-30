@@ -8,16 +8,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../engine/game_engine.dart';
 import '../engine/level_manager.dart';
+import '../models/cosmic_customization.dart';
 import '../models/fleet_planet.dart';
+import '../models/planet.dart';
 
 class GameStateProvider extends ChangeNotifier {
   final GameEngine engine = GameEngine();
 
   int _highScore = 0;
+  int _timeAttackHighScore = 0;
+  bool _isLastRunNewHighScore = false;
   int _totalStarDust = 0;
   int _bestDistance = 0;
+  GameMode _selectedMode = GameMode.endless;
   String? _equippedPlanetId = 'terra';
   Set<String>? _unlockedPlanetIds = {'terra', 'ember'};
+  String? _equippedCustomizationId = 'classic';
+  Set<String>? _unlockedCustomizationIds = {'classic'};
   bool _isInitialized = false;
   bool _modifiedBeforeLoad = false;
   bool _saveScheduled = false;
@@ -26,12 +33,17 @@ class GameStateProvider extends ChangeNotifier {
 
   int get currentLevel => engine.currentLevel;
   int get highScore => _highScore;
+  int get timeAttackHighScore => _timeAttackHighScore;
+  bool get isLastRunNewHighScore => _isLastRunNewHighScore;
+  int get activeHighScore =>
+      engine.mode == GameMode.timeAttack ? _timeAttackHighScore : _highScore;
   int get totalStarDust => _totalStarDust;
   int get bestDistance => _bestDistance;
   int get score => engine.score;
   int get levelStarDust => engine.levelStarDust;
   int get combo => engine.combo;
   GamePhase get phase => engine.phase;
+  GameMode get selectedMode => _selectedMode;
   bool get isInitialized => _isInitialized;
   bool get canRevive => engine.canRevive;
   bool get canAffordRevive => engine.canRevive && _totalStarDust >= engine.nextReviveCost;
@@ -42,10 +54,26 @@ class GameStateProvider extends ChangeNotifier {
   Set<String> get unlockedPlanetIds => _unlockedPlanetIds ?? {'terra', 'ember'};
   FleetPlanet get equippedPlanet => FleetCatalog.getById(_equippedPlanetId ?? 'terra');
 
+  String get equippedCustomizationId => _equippedCustomizationId ?? 'classic';
+  Set<String> get unlockedCustomizationIds => _unlockedCustomizationIds ?? {'classic'};
+  CosmicCustomization get equippedCustomization =>
+      CustomizationCatalog.getById(_equippedCustomizationId ?? 'classic');
+
   bool isUnlocked(String id) =>
       (_unlockedPlanetIds ?? {'terra', 'ember'}).contains(id);
   bool isEquipped(String id) =>
       (_equippedPlanetId ?? 'terra') == id;
+
+  bool isCustomizationUnlocked(String id) =>
+      (_unlockedCustomizationIds ?? {'classic'}).contains(id);
+  bool isCustomizationEquipped(String id) =>
+      (_equippedCustomizationId ?? 'classic') == id;
+
+  void setGameMode(GameMode mode) {
+    if (_selectedMode == mode) return;
+    _selectedMode = mode;
+    notifyListeners();
+  }
 
   GameStateProvider() {
     _loadSavedData();
@@ -56,27 +84,41 @@ class GameStateProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       _prefs = prefs;
       final diskHigh = prefs.getInt('highScore') ?? 0;
+      final diskTimeHigh = prefs.getInt('timeAttackHighScore') ?? 0;
       final diskDust = prefs.getInt('totalStarDust') ?? 0;
       final diskBest = prefs.getInt('bestDistance') ?? 0;
       final diskEquipped = prefs.getString('equippedPlanet') ?? 'terra';
       final savedUnlocked = prefs.getStringList('unlockedPlanets');
+      final diskCustom = prefs.getString('equippedCustomization') ?? 'classic';
+      final savedUnlockedCustom = prefs.getStringList('unlockedCustomizations');
 
       if (_modifiedBeforeLoad) {
         _highScore = max(_highScore, diskHigh);
+        _timeAttackHighScore = max(_timeAttackHighScore, diskTimeHigh);
         _totalStarDust = max(0, _totalStarDust + diskDust);
         _bestDistance = max(_bestDistance, diskBest);
         if (savedUnlocked != null && savedUnlocked.isNotEmpty) {
           _unlockedPlanetIds = {...?_unlockedPlanetIds, ...savedUnlocked};
         }
+        if (savedUnlockedCustom != null && savedUnlockedCustom.isNotEmpty) {
+          _unlockedCustomizationIds = {...?_unlockedCustomizationIds, ...savedUnlockedCustom};
+        }
       } else {
         _highScore = diskHigh;
+        _timeAttackHighScore = diskTimeHigh;
         _totalStarDust = diskDust;
         _bestDistance = diskBest;
         _equippedPlanetId = diskEquipped;
+        _equippedCustomizationId = diskCustom;
         if (savedUnlocked != null && savedUnlocked.isNotEmpty) {
           _unlockedPlanetIds = savedUnlocked.toSet();
         } else {
           _unlockedPlanetIds = {'terra', 'ember'};
+        }
+        if (savedUnlockedCustom != null && savedUnlockedCustom.isNotEmpty) {
+          _unlockedCustomizationIds = savedUnlockedCustom.toSet();
+        } else {
+          _unlockedCustomizationIds = {'classic'};
         }
       }
       _isInitialized = true;
@@ -108,10 +150,13 @@ class GameStateProvider extends ChangeNotifier {
       _prefs = prefs;
       await Future.wait([
         prefs.setInt('highScore', _highScore),
+        prefs.setInt('timeAttackHighScore', _timeAttackHighScore),
         prefs.setInt('totalStarDust', _totalStarDust),
         prefs.setInt('bestDistance', _bestDistance),
         prefs.setString('equippedPlanet', _equippedPlanetId ?? 'terra'),
         prefs.setStringList('unlockedPlanets', (_unlockedPlanetIds ?? {'terra', 'ember'}).toList()),
+        prefs.setString('equippedCustomization', _equippedCustomizationId ?? 'classic'),
+        prefs.setStringList('unlockedCustomizations', (_unlockedCustomizationIds ?? {'classic'}).toList()),
       ]);
     } catch (_) {}
   }
@@ -146,10 +191,40 @@ class GameStateProvider extends ChangeNotifier {
     return true;
   }
 
+  /// Equips an already unlocked cosmic customization (trail + launch wave).
+  void equipCustomization(String id) {
+    _unlockedCustomizationIds ??= {'classic'};
+    if (!_unlockedCustomizationIds!.contains(id)) return;
+    _equippedCustomizationId = id;
+    _scheduleSave(immediate: true);
+    notifyListeners();
+  }
+
+  /// Unlocks a cosmic customization if sufficient Stardust is available.
+  bool unlockCustomization(String id) {
+    _unlockedCustomizationIds ??= {'classic'};
+    final item = CustomizationCatalog.getById(id);
+    if (_unlockedCustomizationIds!.contains(id)) {
+      equipCustomization(id);
+      return true;
+    }
+    if (_totalStarDust < item.price) {
+      return false;
+    }
+    _totalStarDust -= item.price;
+    _unlockedCustomizationIds!.add(id);
+    _equippedCustomizationId = id;
+    _scheduleSave(immediate: true);
+    notifyListeners();
+    return true;
+  }
+
   void Function()? _onHitCallback;
   void Function()? _onShootCallback;
   void Function()? _onGameOverCallback;
   void Function(int completedLevel, int bonus)? _onLevelCompleteCallback;
+  void Function(OrbitPowerUpType powerUp)? _onPowerUpCollectedCallback;
+  void Function(bool brokeHazard)? _onShieldUsedCallback;
 
   /// Attach active UI listeners from the currently mounted GameScreen.
   void attachCallbacks({
@@ -157,11 +232,15 @@ class GameStateProvider extends ChangeNotifier {
     VoidCallback? onShoot,
     VoidCallback? onGameOver,
     void Function(int completedLevel, int bonus)? onLevelComplete,
+    void Function(OrbitPowerUpType powerUp)? onPowerUpCollected,
+    void Function(bool brokeHazard)? onShieldUsed,
   }) {
     _onHitCallback = onHit;
     _onShootCallback = onShoot;
     _onGameOverCallback = onGameOver;
     _onLevelCompleteCallback = onLevelComplete;
+    _onPowerUpCollectedCallback = onPowerUpCollected;
+    _onShieldUsedCallback = onShieldUsed;
   }
 
   /// Detach UI listeners when GameScreen is unmounted/disposed.
@@ -170,17 +249,23 @@ class GameStateProvider extends ChangeNotifier {
     _onShootCallback = null;
     _onGameOverCallback = null;
     _onLevelCompleteCallback = null;
+    _onPowerUpCollectedCallback = null;
+    _onShieldUsedCallback = null;
   }
 
-  /// Initialise or restart the endless mode.
-  void startLevel(double screenWidth, double screenHeight) {
+  /// Initialise or restart the active game mode.
+  void startLevel(double screenWidth, double screenHeight, {GameMode? modeOverride}) {
+    if (modeOverride != null) {
+      _selectedMode = modeOverride;
+    }
+    _isLastRunNewHighScore = false;
     _endlessManager = EndlessManager(
       screenWidth: screenWidth,
       screenHeight: screenHeight,
       startingPlanet: equippedPlanet,
     );
 
-    engine.init(_endlessManager!, screenWidth, screenHeight);
+    engine.init(_endlessManager!, screenWidth, screenHeight, gameMode: _selectedMode);
 
     engine.onHit = () {
       try {
@@ -199,6 +284,24 @@ class GameStateProvider extends ChangeNotifier {
       } catch (e) {
         debugPrint('Error in onShoot callback: $e');
       }
+    };
+
+    engine.onPowerUpCollected = (powerUp) {
+      try {
+        _onPowerUpCollectedCallback?.call(powerUp);
+      } catch (e) {
+        debugPrint('Error in onPowerUpCollected callback: $e');
+      }
+      notifyListeners();
+    };
+
+    engine.onShieldUsed = (brokeHazard) {
+      try {
+        _onShieldUsedCallback?.call(brokeHazard);
+      } catch (e) {
+        debugPrint('Error in onShieldUsed callback: $e');
+      }
+      notifyListeners();
     };
 
     engine.onGameOver = () {
@@ -255,11 +358,19 @@ class GameStateProvider extends ChangeNotifier {
   }
 
   void _updateHighScore() {
-    if (engine.score > _highScore) {
-      _highScore = engine.score;
-    }
-    if (engine.currentLevel > _bestDistance) {
-      _bestDistance = engine.currentLevel;
+    if (engine.mode == GameMode.timeAttack) {
+      if (engine.score > _timeAttackHighScore && engine.score > 0) {
+        _timeAttackHighScore = engine.score;
+        _isLastRunNewHighScore = true;
+      }
+    } else {
+      if (engine.score > _highScore && engine.score > 0) {
+        _highScore = engine.score;
+        _isLastRunNewHighScore = true;
+      }
+      if (engine.currentLevel > _bestDistance) {
+        _bestDistance = engine.currentLevel;
+      }
     }
   }
 }
